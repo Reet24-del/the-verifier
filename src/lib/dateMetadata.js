@@ -55,7 +55,7 @@ function jsonLdSignals(html) {
   let match;
 
   while ((match = pattern.exec(html))) {
-    if (attributes(match[1]).type.toLowerCase() !== 'application/ld+json') continue;
+    if (attributes(match[1]).type?.toLowerCase() !== 'application/ld+json') continue;
     try {
       dateSignalsFromJson(JSON.parse(match[2].trim()), signals);
     } catch {

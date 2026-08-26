@@ -28,6 +28,20 @@ test('prefers JSON-LD publication metadata over a newer Open Graph timestamp', (
   assert.equal(result.newest.provenance, 'json-ld');
 });
 
+test('ignores ordinary scripts before extracting a later JSON-LD block', () => {
+  const result = resolveMetadata([
+    source('Source A', 'https://example.test/a', `
+      <script>window.pageBooted = true;</script>
+      <script type="application/ld+json">{"datePublished":"2026-08-10T08:00:00Z"}</script>
+    `),
+    source('Source B', 'https://example.test/b', '<script type="application/ld+json">{"datePublished":"2026-08-09T08:00:00Z"}</script>'),
+  ]);
+
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.newest.title, 'Source A');
+  assert.equal(result.newest.provenance, 'json-ld');
+});
+
 test('returns unresolved when a selected strong date is invalid', () => {
   const result = resolveMetadata([
     source('Invalid source', 'https://example.test/invalid', `
