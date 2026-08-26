@@ -85,7 +85,7 @@ export default function App() {
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Source</th><th>Metadata field</th><th>Raw value</th><th>Normalized (UTC)</th></tr></thead>
-                <tbody>{resolver.evidence.map((item) => <tr key={item.source}><td>{item.source}</td><td>{item.field}</td><td>{item.raw}</td><td>{item.normalized}</td></tr>)}</tbody>
+                <tbody>{resolver.evidence.map((item) => <tr key={item.url}><td>{item.title}</td><td>{item.field}</td><td>{item.raw}</td><td>{item.normalized}</td></tr>)}</tbody>
               </table>
             </div>
             <p className={`resolver-result ${resolver.status}`}>{resolver.status === 'resolved' ? 'Resolved:' : 'Unresolved:'} {resolver.message}</p>
