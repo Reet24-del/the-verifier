@@ -112,7 +112,8 @@ test('POST approval rejects a session whose workflow has not completed', async (
 });
 
 test('POST approval rejects an invalid token without changing the session', async (t) => {
-  const app = await startServer();
+  const dossierDirectory = await makeDossierDirectory(t);
+  const app = await startServer({ dossierDirectory });
   t.after(app.close);
   const session = await createSession(app);
   await app.request(`/api/sessions/${session.id}/workflow`, { method: 'POST' });
@@ -126,6 +127,7 @@ test('POST approval rejects an invalid token without changing the session', asyn
   assert.deepEqual(await response.json(), {
     error: { code: 'invalid_approval_token', message: 'Approval token is invalid' },
   });
+  assert.deepEqual(await readdir(dossierDirectory), []);
 });
 
 test('rejected approval does not persist or expose a dossier', async (t) => {
