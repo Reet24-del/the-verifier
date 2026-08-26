@@ -171,7 +171,7 @@ test('valid explicit approval persists the completed dossier', async (t) => {
   });
   assert.equal(saved.id, session.id);
   assert.equal(saved.brief, 'Verify Ada Lovelace is a mathematician.');
-  assert.equal(saved.result.status, 'unresolved');
+  assert.equal(saved.result.status, 'resolved');
   assert.match(saved.savedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
@@ -195,5 +195,5 @@ test('GET dossier serves a saved dossier after a server restart', async (t) => {
   assert.equal(response.status, 200);
   assert.equal(body.dossier.id, session.id);
   assert.equal(body.dossier.brief, 'Verify Ada Lovelace is a mathematician.');
-  assert.equal(body.dossier.result.status, 'unresolved');
+  assert.equal(body.dossier.result.status, 'resolved');
 });

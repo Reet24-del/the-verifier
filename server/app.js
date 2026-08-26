@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createResearchWorkflow } from './research.js';
 
 const defaultDossierDirectory = fileURLToPath(new URL('../data/dossiers', import.meta.url));
 
-export function createServer({ workflow = fixtureWorkflow, dossierDirectory = defaultDossierDirectory } = {}) {
+export function createServer({ workflow = createResearchWorkflow(), dossierDirectory = defaultDossierDirectory } = {}) {
   const sessions = new Map();
 
   return http.createServer(async (request, response) => {
@@ -128,14 +129,6 @@ export function createServer({ workflow = fixtureWorkflow, dossierDirectory = de
 
     sendJson(response, 404, error('not_found', 'Route not found'));
   });
-}
-
-async function fixtureWorkflow({ brief }) {
-  return {
-    status: 'unresolved',
-    findings: [],
-    summary: `Fixture workflow placeholder for: ${brief}`,
-  };
 }
 
 function error(code, message) {
