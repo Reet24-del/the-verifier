@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import { once } from 'node:events';
 import test from 'node:test';
 
 import {
@@ -6,6 +8,25 @@ import {
   createResearchWorkflow,
   createTrueForgeResearchAdapter,
 } from '../server/research.js';
+
+async function startFakeTrueForge(t, respond) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = raw ? JSON.parse(raw) : undefined;
+    const record = { method: request.method, path: request.url, headers: request.headers, body };
+    requests.push(record);
+    const result = await respond(record, requests);
+    response.writeHead(result.status ?? 200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(result.body));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const { port } = server.address();
+  return { baseUrl: `http://127.0.0.1:${port}/api/v1`, requests };
+}
 
 test('fixture research returns two dated, opposing Starbucks source sets', async () => {
   const adapter = createFixtureResearchAdapter();
@@ -59,44 +80,42 @@ test('research workflow starts opposing research angles concurrently and resolve
   assert.equal(result.resolution.newest.url, 'https://example.test/current');
 });
 
-test('TrueForge adapter uses the documented session, turn, and polling API with server-only bearer auth', async () => {
-  const requests = [];
-  const responses = [
-    { data: { id: 'session-123' } },
-    { data: { id: 'turn-456', state: { status: 'running' } } },
-    { data: { id: 'turn-456', state: { status: 'running' } } },
-    {
-      data: {
-        id: 'turn-456',
-        state: {
-          status: 'completed',
-          output: {
-            content: JSON.stringify({
-              sources: [{
-                title: 'Example current source',
-                url: 'https://example.test/current',
-                claim: 'The claim is current.',
-                stance: 'supports',
-                html: '<script type="application/ld+json">{"datePublished":"2026-08-25T00:00:00Z"}</script>',
-              }],
-            }),
+test('TrueForge adapter follows the official HTTP envelopes through a done turn', async (t) => {
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.method === 'POST' && request.path === '/api/v1/sessions') {
+      return { body: { data: { id: 'session-123' } } };
+    }
+    if (request.method === 'POST' && request.path === '/api/v1/sessions/session-123/turns') {
+      return { body: { data: { id: 'turn-456', state: { status: 'running', started_at: '2026-08-27T09:00:00Z' } } } };
+    }
+    return {
+      body: {
+        data: {
+          id: 'turn-456',
+          state: {
+            status: 'done',
+            completed_at: '2026-08-27T09:00:02Z',
+            message: 'Research complete',
+            output: {
+              content: JSON.stringify({
+                sources: [{
+                  title: 'Example current source',
+                  url: 'https://example.test/current',
+                  claim: 'The claim is current.',
+                  stance: 'supports',
+                  html: '<script type="application/ld+json">{"datePublished":"2026-08-25T00:00:00Z"}</script>',
+                }],
+              }),
+            },
           },
         },
       },
-    },
-  ];
-  const fetchImpl = async (url, options = {}) => {
-    requests.push({ url, options });
-    return new Response(JSON.stringify(responses.shift()), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  };
+    };
+  });
   const adapter = createTrueForgeResearchAdapter({
-    baseUrl: 'http://trueforge.test/api/v1',
+    baseUrl: fake.baseUrl,
     agentName: 'verifier-researcher',
     token: 'server-secret',
-    fetchImpl,
     pollIntervalMs: 0,
     timeoutMs: 1_000,
   });
@@ -105,53 +124,73 @@ test('TrueForge adapter uses the documented session, turn, and polling API with 
 
   assert.equal(result.angle, 'current');
   assert.equal(result.sources[0].url, 'https://example.test/current');
-  assert.equal(requests.length, 4);
-  assert.equal(requests[0].url, 'http://trueforge.test/api/v1/sessions');
-  assert.deepEqual(JSON.parse(requests[0].options.body), { agent: { name: 'verifier-researcher' } });
-  assert.equal(requests[0].options.headers.authorization, 'Bearer server-secret');
-  assert.equal(requests[1].url, 'http://trueforge.test/api/v1/sessions/session-123/turns');
-  const turnRequest = JSON.parse(requests[1].options.body);
+  assert.equal(fake.requests.length, 3);
+  assert.equal(fake.requests[0].path, '/api/v1/sessions');
+  assert.deepEqual(fake.requests[0].body, { agent: { name: 'verifier-researcher' } });
+  assert.equal(fake.requests[0].headers.authorization, 'Bearer server-secret');
+  assert.equal(fake.requests[1].path, '/api/v1/sessions/session-123/turns');
+  const turnRequest = fake.requests[1].body;
   assert.equal(turnRequest.input.length, 1);
   assert.equal(turnRequest.input[0].type, 'user.message');
   assert.match(turnRequest.input[0].content, /Current Claim Finder/);
   assert.equal(turnRequest.stream, false);
-  assert.equal(requests[2].url, 'http://trueforge.test/api/v1/sessions/session-123/turns/turn-456');
+  assert.equal(fake.requests[2].path, '/api/v1/sessions/session-123/turns/turn-456');
 });
 
-test('TrueForge adapter rejects a non-terminal error and never fabricates sources', async () => {
+test('TrueForge adapter rejects error and cancelled terminal turn envelopes without fabricating sources', async (t) => {
+  let terminalStatus = 'error';
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.path === '/api/v1/sessions') return { body: { data: { id: 'session-123' } } };
+    if (request.path.endsWith('/turns')) return { body: { data: { id: 'turn-456', state: { status: 'running' } } } };
+    return {
+      body: {
+        data: {
+          id: 'turn-456',
+          state: {
+            status: terminalStatus,
+            completed_at: '2026-08-27T09:00:02Z',
+            message: `${terminalStatus} by harness`,
+          },
+        },
+      },
+    };
+  });
   const adapter = createTrueForgeResearchAdapter({
-    baseUrl: 'http://trueforge.test/api/v1',
+    baseUrl: fake.baseUrl,
     agentName: 'verifier-researcher',
     pollIntervalMs: 0,
     timeoutMs: 1_000,
-    fetchImpl: async (url) => new Response(JSON.stringify(
-      url.endsWith('/sessions')
-        ? { data: { id: 'session-123' } }
-        : url.endsWith('/turns')
-          ? { data: { id: 'turn-456', state: { status: 'running' } } }
-          : { data: { id: 'turn-456', state: { status: 'failed', error: { message: 'research tool unavailable' } } } },
-    ), { status: 200, headers: { 'content-type': 'application/json' } }),
   });
 
   await assert.rejects(
     adapter.research({ angle: 'contradiction', brief: 'Verify an example claim.' }),
-    /TrueForge turn failed: research tool unavailable/,
+    /TrueForge turn failed: error by harness/,
+  );
+  terminalStatus = 'cancelled';
+  await assert.rejects(
+    adapter.research({ angle: 'contradiction', brief: 'Verify an example claim.' }),
+    /TrueForge turn failed: cancelled by harness/,
   );
 });
 
-test('TrueForge adapter requires a structured source result rather than inventing live findings', async () => {
+test('TrueForge adapter requires a structured source result rather than inventing live findings', async (t) => {
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.path === '/api/v1/sessions') return { body: { data: { id: 'session-123' } } };
+    if (request.path.endsWith('/turns')) return { body: { data: { id: 'turn-456', state: { status: 'running' } } } };
+    return {
+      body: {
+        data: {
+          id: 'turn-456',
+          state: { status: 'done', completed_at: '2026-08-27T09:00:02Z', message: 'No structured output', output: { content: 'No JSON here.' } },
+        },
+      },
+    };
+  });
   const adapter = createTrueForgeResearchAdapter({
-    baseUrl: 'http://trueforge.test/api/v1',
+    baseUrl: fake.baseUrl,
     agentName: 'verifier-researcher',
     pollIntervalMs: 0,
     timeoutMs: 1_000,
-    fetchImpl: async (url) => new Response(JSON.stringify(
-      url.endsWith('/sessions')
-        ? { data: { id: 'session-123' } }
-        : url.endsWith('/turns')
-          ? { data: { id: 'turn-456', state: { status: 'running' } } }
-          : { data: { id: 'turn-456', state: { status: 'completed', output: { content: 'No JSON here.' } } } },
-    ), { status: 200, headers: { 'content-type': 'application/json' } }),
   });
 
   await assert.rejects(
