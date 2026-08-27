@@ -62,21 +62,27 @@ test('research workflow starts opposing research angles concurrently and resolve
 test('TrueForge adapter uses the documented session, turn, and polling API with server-only bearer auth', async () => {
   const requests = [];
   const responses = [
-    { session_id: 'session-123' },
-    { turn_id: 'turn-456', status: 'running' },
-    { turn_id: 'turn-456', status: 'running' },
+    { data: { id: 'session-123' } },
+    { data: { id: 'turn-456', state: { status: 'running' } } },
+    { data: { id: 'turn-456', state: { status: 'running' } } },
     {
-      turn_id: 'turn-456',
-      status: 'completed',
-      output: JSON.stringify({
-        sources: [{
-          title: 'Example current source',
-          url: 'https://example.test/current',
-          claim: 'The claim is current.',
-          stance: 'supports',
-          html: '<script type="application/ld+json">{"datePublished":"2026-08-25T00:00:00Z"}</script>',
-        }],
-      }),
+      data: {
+        id: 'turn-456',
+        state: {
+          status: 'completed',
+          output: {
+            content: JSON.stringify({
+              sources: [{
+                title: 'Example current source',
+                url: 'https://example.test/current',
+                claim: 'The claim is current.',
+                stance: 'supports',
+                html: '<script type="application/ld+json">{"datePublished":"2026-08-25T00:00:00Z"}</script>',
+              }],
+            }),
+          },
+        },
+      },
     },
   ];
   const fetchImpl = async (url, options = {}) => {
@@ -120,10 +126,10 @@ test('TrueForge adapter rejects a non-terminal error and never fabricates source
     timeoutMs: 1_000,
     fetchImpl: async (url) => new Response(JSON.stringify(
       url.endsWith('/sessions')
-        ? { session_id: 'session-123' }
+        ? { data: { id: 'session-123' } }
         : url.endsWith('/turns')
-          ? { turn_id: 'turn-456', status: 'running' }
-          : { turn_id: 'turn-456', status: 'failed', error: 'research tool unavailable' },
+          ? { data: { id: 'turn-456', state: { status: 'running' } } }
+          : { data: { id: 'turn-456', state: { status: 'failed', error: { message: 'research tool unavailable' } } } },
     ), { status: 200, headers: { 'content-type': 'application/json' } }),
   });
 
@@ -141,10 +147,10 @@ test('TrueForge adapter requires a structured source result rather than inventin
     timeoutMs: 1_000,
     fetchImpl: async (url) => new Response(JSON.stringify(
       url.endsWith('/sessions')
-        ? { session_id: 'session-123' }
+        ? { data: { id: 'session-123' } }
         : url.endsWith('/turns')
-          ? { turn_id: 'turn-456', status: 'running' }
-          : { turn_id: 'turn-456', status: 'completed', output: 'No JSON here.' },
+          ? { data: { id: 'turn-456', state: { status: 'running' } } }
+          : { data: { id: 'turn-456', state: { status: 'completed', output: { content: 'No JSON here.' } } } },
     ), { status: 200, headers: { 'content-type': 'application/json' } }),
   });
 

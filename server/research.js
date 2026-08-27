@@ -106,8 +106,8 @@ export function createTrueForgeResearchAdapter({
       const session = await requestJson(fetchImpl, `${apiUrl}/sessions`, {
         method: 'POST', headers, body: JSON.stringify({ agent: { name: configuredAgentName } }),
       }, timeoutMs);
-      const sessionId = readIdentifier(session, 'session_id');
-      if (!sessionId) throw new Error('TrueForge session response did not include session_id');
+      const sessionId = readEnvelopeId(session);
+      if (!sessionId) throw new Error('TrueForge session response did not include data.id');
 
       const startedTurn = await requestJson(fetchImpl, `${apiUrl}/sessions/${encodeURIComponent(sessionId)}/turns`, {
         method: 'POST',
@@ -117,8 +117,8 @@ export function createTrueForgeResearchAdapter({
           stream: false,
         }),
       }, timeoutMs);
-      const turnId = readIdentifier(startedTurn, 'turn_id');
-      if (!turnId) throw new Error('TrueForge turn response did not include turn_id');
+      const turnId = readEnvelopeId(startedTurn);
+      if (!turnId) throw new Error('TrueForge turn response did not include data.id');
 
       const completedTurn = await pollTurn({
         fetchImpl,
@@ -153,7 +153,7 @@ async function pollTurn({ fetchImpl, url, headers, timeoutMs, pollIntervalMs }) 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
     const turn = await requestJson(fetchImpl, url, { method: 'GET', headers }, Math.max(1, deadline - Date.now()));
-    const status = String(turn.status ?? turn.state ?? '').toLowerCase();
+    const status = String(turn?.data?.state?.status ?? '').toLowerCase();
     if (TERMINAL_SUCCESS.has(status)) return turn;
     if (TERMINAL_FAILURE.has(status)) {
       throw new Error(`TrueForge turn failed: ${readError(turn)}`);
@@ -188,21 +188,13 @@ async function requestJson(fetchImpl, url, options, timeoutMs) {
 }
 
 function readStructuredResult(turn) {
-  for (const candidate of stringsWithin(turn)) {
-    const parsed = parsePossibleJson(candidate);
-    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sources)) return parsed;
+  const content = turn?.data?.state?.output?.content;
+  if (typeof content !== 'string') {
+    throw new Error('TrueForge turn completed without a structured JSON source result');
   }
+  const parsed = parsePossibleJson(content);
+  if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sources)) return parsed;
   throw new Error('TrueForge turn completed without a structured JSON source result');
-}
-
-function* stringsWithin(value, seen = new Set()) {
-  if (typeof value === 'string') {
-    yield value;
-    return;
-  }
-  if (!value || typeof value !== 'object' || seen.has(value)) return;
-  seen.add(value);
-  for (const nested of Object.values(value)) yield* stringsWithin(nested, seen);
 }
 
 function parsePossibleJson(value) {
@@ -238,14 +230,22 @@ function validateSources(sources) {
   });
 }
 
-function readIdentifier(body, field) {
-  const value = body?.[field] ?? body?.data?.[field] ?? body?.[field.replace('_id', 'Id')];
+function readEnvelopeId(body) {
+  const value = body?.data?.id;
   return isNonEmptyString(value) ? value : null;
 }
 
 function readError(body) {
-  const value = body?.error?.message ?? body?.error ?? body?.message ?? body?.detail ?? 'unknown error';
-  return typeof value === 'string' ? value : JSON.stringify(value);
+  const value = body?.data?.state?.error
+    ?? body?.data?.state?.message
+    ?? body?.error?.message
+    ?? body?.error
+    ?? body?.message
+    ?? body?.detail
+    ?? 'unknown error';
+  if (typeof value === 'string') return value;
+  if (isNonEmptyString(value?.message)) return value.message;
+  return JSON.stringify(value);
 }
 
 function assertAngle(angle) {
