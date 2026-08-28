@@ -1,0 +1,12 @@
+export const demoBrief = 'I’m meeting Maya Chen. She says she is CEO of Northstar AI.'
+
+export const investigation = {
+  finder: [
+    { title: 'Northstar AI — Press kit', host: 'northstar.example/press', url: 'https://northstar.example/press', claim: 'Maya Chen is Chief Executive Officer.', state: 'supports', html: '<script type="application/ld+json">{"datePublished":"2026-08-15T13:40:00-04:00","dateModified":"2026-08-19T13:40:00-04:00"}</script>' },
+    { title: 'TechToday — Leadership profile', host: 'techtoday.example/maya-chen', url: 'https://techtoday.example/maya-chen', claim: 'Maya Chen was appointed CEO of Northstar AI.', state: 'supports', html: '<meta property="article:published_time" content="2026-08-12T10:15:00-07:00">' },
+  ],
+  hunter: [
+    { title: 'Northstar AI — Company record', host: 'registry.example/northstar', url: 'https://registry.example/northstar', claim: 'Arjun Patel is listed as CEO; Maya Chen as COO.', state: 'contradicts', html: '<script type="application/ld+json">{"datePublished":"2026-08-21T09:30:00Z"}</script>' },
+    { title: 'Investor filing — Form D', host: 'filings.example/northstar', url: 'https://filings.example/northstar', claim: 'Principal executive: Arjun Patel.', state: 'contradicts', html: '<script type="application/ld+json">{"datePublished":"2026-08-20T22:31:45Z"}</script>' },
+  ],
+}
