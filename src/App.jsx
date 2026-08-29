@@ -1,22 +1,36 @@
 import { useMemo, useState } from 'react'
-import { demoBrief, investigation } from './data.js'
-import { resolveMetadata } from './lib/dateMetadata.js'
+import { runVerification, submitApproval } from './lib/verifierApi.js'
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
+const defaultApi = {
+  runVerification: (options) => runVerification({ ...options, apiBaseUrl }),
+  submitApproval: (options) => submitApproval({ ...options, apiBaseUrl }),
+}
+const defaultBrief = 'Verify that Brian Niccol is CEO of Starbucks.'
 
 const sourceGroups = [
-  { key: 'finder', label: 'Current Claim Finder', description: 'Seeks current evidence supporting the claim.', tone: 'amber' },
-  { key: 'hunter', label: 'Contradiction Hunter', description: 'Actively searches for conflicting public evidence.', tone: 'red' },
+  { key: 'current', label: 'Current Claim Finder', description: 'Seeks current evidence supporting the claim.', tone: 'amber' },
+  { key: 'contradiction', label: 'Contradiction Hunter', description: 'Actively searches for conflicting public evidence.', tone: 'red' },
 ]
 
 function Icon({ children }) {
   return <span aria-hidden="true" className="icon">{children}</span>
 }
 
+function sourceHost(url) {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
 function SourceCard({ source }) {
-  const isSupport = source.state === 'supports'
+  const isSupport = source.stance === 'supports'
   return (
     <article className="source-card">
       <p className="source-title">{source.title}</p>
-      <p className="source-host">{source.host}</p>
+      <p className="source-host">{sourceHost(source.url)}</p>
       <p className="source-claim">“{source.claim}”</p>
       <p className={`source-state ${isSupport ? 'positive' : 'negative'}`}>
         <span /> {isSupport ? 'Supports claim' : 'Contradicts claim'}
@@ -25,34 +39,101 @@ function SourceCard({ source }) {
   )
 }
 
-export default function App() {
-  const [brief, setBrief] = useState(demoBrief)
+function conclusionFor(runState, result) {
+  if (runState === 'running') return { title: 'Research in progress', text: 'Two opposing research lanes are checking the brief.' }
+  if (runState === 'error') return { title: 'Investigation failed', text: 'The server did not return a completed verification. You can safely try again.' }
+  if (!result) return { title: 'Awaiting evidence', text: 'Run the investigation to construct a source-backed brief.' }
+  return {
+    title: result.status === 'resolved' ? 'Conflict resolved' : 'Needs review',
+    text: result.summary,
+  }
+}
+
+export default function App({ api = defaultApi }) {
+  const [brief, setBrief] = useState(defaultBrief)
   const [runState, setRunState] = useState('ready')
-  const [saved, setSaved] = useState(false)
+  const [workflow, setWorkflow] = useState(null)
+  const [session, setSession] = useState(null)
   const [notice, setNotice] = useState('')
-  const allSources = useMemo(() => [...investigation.finder, ...investigation.hunter], [])
-  const resolver = useMemo(() => resolveMetadata(allSources), [allSources])
 
-  const runInvestigation = () => {
+  const result = workflow?.result ?? null
+  const resolver = result?.resolution ?? null
+  const findingsByAngle = useMemo(
+    () => Object.fromEntries((result?.findings ?? []).map((finding) => [finding.angle, finding.sources])),
+    [result],
+  )
+  const allSources = useMemo(() => (result?.findings ?? []).flatMap((finding) => finding.sources), [result])
+  const hasConflict = allSources.some((source) => source.stance === 'supports')
+    && allSources.some((source) => source.stance === 'contradicts')
+  const conclusion = conclusionFor(runState, result)
+  const isBusy = runState === 'running' || runState === 'saving'
+  const awaitingApproval = runState === 'awaiting_approval'
+
+  const runInvestigation = async () => {
+    if (!brief.trim()) {
+      setRunState('error')
+      setNotice('Enter a brief before starting the investigation.')
+      return
+    }
+
     setRunState('running')
-    setSaved(false)
+    setWorkflow(null)
+    setSession(null)
     setNotice('Both research agents are working in parallel…')
-    window.setTimeout(() => {
-      setRunState('complete')
-      setNotice('Conflict found. Sandbox metadata check completed.')
-    }, 1100)
+    try {
+      const completed = await api.runVerification({ brief })
+      setWorkflow(completed)
+      setSession(completed.session)
+      setRunState('awaiting_approval')
+      setNotice('Conflict checked. The server is awaiting your approval before saving anything.')
+    } catch (error) {
+      setRunState('error')
+      setNotice(error instanceof Error ? error.message : 'Workflow execution failed')
+    }
   }
 
-  const approve = () => {
-    setSaved(true)
-    setNotice('Dossier saved only after your approval.')
+  const decide = async (approved) => {
+    if (!session?.id || !workflow?.approvalToken || !awaitingApproval) return
+
+    setRunState(approved ? 'saving' : 'rejecting')
+    setNotice(approved ? 'Saving the approved dossier…' : 'Recording your decision without saving…')
+    try {
+      const response = await api.submitApproval({
+        sessionId: session.id,
+        approvalToken: workflow.approvalToken,
+        approved,
+      })
+      setSession(response.session)
+      setWorkflow((current) => ({ ...current, approvalToken: null }))
+      setRunState(approved ? 'saved' : 'rejected')
+      setNotice(approved
+        ? 'The server persisted the dossier after your approval.'
+        : 'Approval rejected. The server saved no dossier.')
+    } catch (error) {
+      setRunState('awaiting_approval')
+      setNotice(error instanceof Error ? error.message : 'The approval request failed')
+    }
   }
+
+  const verifyButtonLabel = runState === 'running'
+    ? 'Investigating…'
+    : runState === 'error'
+      ? 'Try again'
+      : 'Verify brief'
+
+  const dossierStatus = runState === 'saved'
+    ? { label: 'Saved with approval', className: 'saved', text: 'The server persisted the dossier after your approval.' }
+    : runState === 'rejected'
+      ? { label: 'Not saved', className: 'draft', text: 'You rejected approval, so the server saved nothing.' }
+      : awaitingApproval
+        ? { label: 'Awaiting your approval', className: 'draft', text: 'The server is blocked until you decide.' }
+        : { label: 'Not saved', className: 'draft', text: 'No dossier has been persisted.' }
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">THE VERIFIER</div>
-        <div className="session"><span className="live-dot" /> Session active · approval required for save</div>
+        <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} · approval required for save</div>
         <button className="button secondary" onClick={() => setNotice('Export becomes available after approval.')}>Export dossier</button>
       </header>
 
@@ -62,22 +143,29 @@ export default function App() {
             <div className="section-heading"><span>1.</span> Spoken brief <em>{runState === 'ready' ? '(ready)' : '(captured)'}</em></div>
             <div className="brief-input-wrap">
               <Icon>◉</Icon>
-              <textarea aria-label="Brief to verify" value={brief} onChange={(event) => setBrief(event.target.value)} />
-              <button className="button compact" onClick={runInvestigation}>{runState === 'running' ? 'Investigating…' : 'Verify brief'}</button>
+              <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => setBrief(event.target.value)} />
+              <button className="button compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
             </div>
-            <p className="input-meta">Voice or text input · This demo uses a pinned public-source case</p>
+            <p className="input-meta">Voice or text input · Fixture mode uses pinned public Starbucks sources</p>
           </section>
 
           <section className="panel timeline-panel">
             <div className="section-heading"><span>2.</span> Investigation timeline <em>two adversarial agents</em></div>
             <div className="timeline-scale"><span>0s</span><span>15s</span><span>30s</span><span>45s</span><span>60s</span></div>
-            {sourceGroups.map((group) => (
-              <div className="agent-row" key={group.key}>
-                <div className={`agent-label ${group.tone}`}><strong>{group.label}</strong><small>{group.description}</small></div>
-                <div className="source-stream">{investigation[group.key].map((source) => <SourceCard source={source} key={source.title} />)}</div>
-              </div>
-            ))}
-            {runState !== 'ready' && <div className="conflict"><Icon>!</Icon><div><strong>Conflict detected</strong><p>Recent public sources disagree on who holds the CEO role. The resolver compares their source-date evidence.</p></div><span>{runState === 'running' ? 'Checking…' : 'Escalated'}</span></div>}
+            {sourceGroups.map((group) => {
+              const sources = findingsByAngle[group.key] ?? []
+              return (
+                <div className="agent-row" key={group.key}>
+                  <div className={`agent-label ${group.tone}`}><strong>{group.label}</strong><small>{group.description}</small></div>
+                  <div className="source-stream">
+                    {sources.length
+                      ? sources.map((source) => <SourceCard source={source} key={source.url} />)
+                      : <div className={`source-empty ${runState === 'running' ? 'active' : ''}`}>{runState === 'running' ? 'Researching public sources…' : 'Evidence will appear after verification.'}</div>}
+                  </div>
+                </div>
+              )
+            })}
+            {hasConflict && <div className="conflict"><Icon>!</Icon><div><strong>Conflict detected</strong><p>Public sources disagree on the claim. The resolver compared their machine-readable date evidence.</p></div><span>Escalated</span></div>}
           </section>
 
           <section className="panel resolver-panel">
@@ -85,24 +173,36 @@ export default function App() {
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Source</th><th>Metadata field</th><th>Raw value</th><th>Normalized (UTC)</th></tr></thead>
-                <tbody>{resolver.evidence.map((item) => <tr key={item.url}><td>{item.title}</td><td>{item.field}</td><td>{item.raw}</td><td>{item.normalized}</td></tr>)}</tbody>
+                <tbody>
+                  {resolver?.evidence?.length
+                    ? resolver.evidence.map((item) => <tr key={`${item.url}-${item.field}`}><td>{item.title}</td><td>{item.field}</td><td>{item.raw}</td><td>{item.normalized ?? 'Invalid'}</td></tr>)
+                    : <tr><td className="empty-cell" colSpan="4">No metadata evidence yet.</td></tr>}
+                </tbody>
               </table>
             </div>
-            <p className={`resolver-result ${resolver.status}`}>{resolver.status === 'resolved' ? 'Resolved:' : 'Unresolved:'} {resolver.message}</p>
+            {resolver && <p className={`resolver-result ${resolver.status}`}>{resolver.status === 'resolved' ? 'Resolved:' : 'Unresolved:'} {resolver.message}</p>}
           </section>
 
           <section className="approval-panel">
-            <div><div className="section-heading"><span>4.</span> Human approval</div><h2>Save this verified brief?</h2><p>Saving is an irreversible session action. The agent is blocked until you decide.</p></div>
-            <div className="approval-actions"><button className="button primary" disabled={runState !== 'complete'} onClick={approve}>Approve & save</button><button className="button secondary" onClick={() => setNotice('Investigation retained. No dossier was saved.')}>Keep investigating</button></div>
+            <div><div className="section-heading"><span>4.</span> Human approval</div><h2>Save this verified brief?</h2><p>Saving is an irreversible session action. The server is blocked until you decide.</p></div>
+            <div className="approval-actions">
+              <button className="button primary" disabled={!awaitingApproval} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
+              <button className="button secondary" disabled={!awaitingApproval} onClick={() => decide(false)}>Keep investigating</button>
+            </div>
           </section>
-          {notice && <p className="notice" role="status">{notice}</p>}
+          {notice && <p className={`notice ${runState === 'error' ? 'error' : ''}`} role={runState === 'error' ? 'alert' : 'status'}>{notice}</p>}
         </section>
 
         <aside className="dossier panel">
           <div className="section-heading">Dossier</div>
-          <section className="conclusion"><p>Overall conclusion</p><h1>{runState === 'ready' ? 'Awaiting evidence' : resolver.status === 'resolved' ? 'Conflict resolved' : 'Needs review'}</h1><p>{runState === 'ready' ? 'Run the investigation to construct a source-backed brief.' : 'Official company records have the newest strong machine-readable date evidence. The original CEO claim is not supported as current.'}</p></section>
-          <section className="dossier-section"><p className="dossier-label">Evidence summary</p>{allSources.map((source) => <div className="evidence-item" key={source.title}><span className={source.state === 'supports' ? 'support-dot' : 'conflict-dot'} /><div><strong>{source.title}</strong><small>{source.host}</small></div><em>{source.state === 'supports' ? 'Supports' : 'Contradicts'}</em></div>)}</section>
-          <section className="dossier-section status-box"><p className="dossier-label">Dossier status</p><strong className={saved ? 'saved' : 'draft'}>{saved ? 'Saved with approval' : 'Not saved'}</strong><p>{saved ? 'A session record has been created.' : 'No data has left this session.'}</p></section>
+          <section className="conclusion"><p>Overall conclusion</p><h1>{conclusion.title}</h1><p>{conclusion.text}</p></section>
+          <section className="dossier-section">
+            <p className="dossier-label">Evidence summary</p>
+            {allSources.length
+              ? allSources.map((source) => <div className="evidence-item" key={source.url}><span className={source.stance === 'supports' ? 'support-dot' : 'conflict-dot'} /><div><strong>{source.title}</strong><small>{sourceHost(source.url)}</small></div><em>{source.stance === 'supports' ? 'Supports' : 'Contradicts'}</em></div>)
+              : <p className="empty-summary">No evidence collected yet.</p>}
+          </section>
+          <section className="dossier-section status-box"><p className="dossier-label">Dossier status</p><strong className={dossierStatus.className}>{dossierStatus.label}</strong><p>{dossierStatus.text}</p></section>
         </aside>
       </div>
     </main>

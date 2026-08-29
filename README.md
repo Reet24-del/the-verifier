@@ -82,10 +82,13 @@ server/
 src/
   App.jsx                Verification console UI
   lib/dateMetadata.js    Shared deterministic resolver
+  lib/verifierApi.js     Browser client for session and approval APIs
 test/
   dateMetadata.test.js   Resolver policy and edge cases
   research.test.js       Parallel workflow and TrueForge HTTP contract
   server.test.js         Session, approval, and persistence behavior
+  verifierApi.test.js    Browser-to-server API contract
+  ui/App.test.jsx        React workflow and failure states
 design.md                UI behavior and visual specification
 outputs/                 Product requirements and project documents
 ```
@@ -119,7 +122,7 @@ The API listens on `http://localhost:3001` by default. In a second terminal, sta
 npm run dev
 ```
 
-The current UI is a polished interaction prototype. Backend API binding is the next integration milestone; the server workflow and its approval boundary are independently runnable and tested.
+Vite proxies `/api` to the local server on port `3001`, so the interface runs the real session workflow in fixture or TrueForge mode. For a separately hosted API, set `VITE_API_BASE_URL` when building the frontend.
 
 ### Run with TrueForge
 
@@ -180,6 +183,8 @@ The test suite covers:
 - TrueForge's real session/turn HTTP envelopes through a local fake server;
 - failed, cancelled, malformed, and successful live turns;
 - invalid approval tokens, rejection, persistence, and post-restart retrieval.
+- browser session/workflow requests and server error propagation;
+- React evidence, approval, saved, and recoverable error states.
 
 Some restricted execution environments prohibit binding localhost ports. In that environment, socket-based integration tests report `EPERM`; pure resolver tests and the production build remain runnable.
 
@@ -212,7 +217,7 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Deterministic date-metadata resolver
 - [x] Parallel fixture and TrueForge research adapters
 - [x] Official TrueForge HTTP-envelope contract tests
-- [ ] Connect the React UI to the session API
+- [x] Connect the React UI to the session API
 - [ ] Add saved-dossier export after approval
 - [ ] Complete live credentialed TrueForge rehearsal
 - [ ] Attach Qodo review evidence and final demo video
