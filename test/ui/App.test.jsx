@@ -66,9 +66,18 @@ describe('The Verifier workflow', () => {
         session: { id: sessionId, status: 'saved' },
         dossier: { id: sessionId },
       }),
+      getDossier: async () => ({
+        id: sessionId,
+        brief: 'Verify that Brian Niccol is CEO of Starbucks.',
+        result: workflow.result,
+        savedAt: '2026-08-29T12:00:00.000Z',
+      }),
     };
+    const saveJson = () => {};
     const user = userEvent.setup();
-    render(<App api={api} />);
+    render(<App api={api} saveJson={saveJson} />);
+
+    expect(screen.getByRole('button', { name: /export dossier/i }).hasAttribute('disabled')).toBe(true);
 
     const brief = screen.getByRole('textbox', { name: /brief to verify/i });
     await user.clear(brief);
@@ -78,17 +87,24 @@ describe('The Verifier workflow', () => {
     expect((await screen.findAllByText('Starbucks names Brian Niccol as Chairman and CEO')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Northstar AI/i)).toBeNull();
     expect(screen.getByText('Awaiting your approval')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /export dossier/i }).hasAttribute('disabled')).toBe(true);
 
     await user.click(screen.getByRole('button', { name: /approve & save/i }));
 
     expect(await screen.findByText('Saved with approval')).toBeTruthy();
     expect(screen.getAllByText(/server persisted the dossier/i).length).toBeGreaterThan(0);
+
+    const exportButton = screen.getByRole('button', { name: /export dossier/i });
+    expect(exportButton.hasAttribute('disabled')).toBe(false);
+    await user.click(exportButton);
+    expect(await screen.findByText(/dossier downloaded/i)).toBeTruthy();
   });
 
   it('shows a recoverable error when the workflow request fails', async () => {
     const api = {
       runVerification: async () => { throw new Error('Workflow execution failed'); },
       submitApproval: async () => { throw new Error('not used'); },
+      getDossier: async () => { throw new Error('not used'); },
     };
     const user = userEvent.setup();
     render(<App api={api} />);

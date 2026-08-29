@@ -52,3 +52,16 @@ export async function submitApproval({
     },
   );
 }
+
+export async function getDossier({
+  sessionId,
+  fetchImpl = globalThis.fetch,
+  apiBaseUrl = '',
+}) {
+  const body = await requestJson(
+    fetchImpl,
+    endpoint(apiBaseUrl, `/api/sessions/${encodeURIComponent(sessionId)}/dossier`),
+    { method: 'GET' },
+  );
+  return body.dossier;
+}

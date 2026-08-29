@@ -188,4 +188,4 @@ The UI should support a three-minute demo in this order:
 | Date normalization and resolver policy | `src/lib/dateMetadata.js` |
 | Visual tokens, layout, and responsive styles | `src/styles.css` |
 
-The UI now consumes the server session workflow, renders returned research and resolver evidence, exposes recoverable errors, and binds save/reject actions to the server's one-time approval checkpoint. TrueForge live mode uses the same UI contract; future streaming support can replace the current request/response transition with incremental subagent events without changing the layout.
+The UI now consumes the server session workflow, renders returned research and resolver evidence, exposes recoverable errors, and binds save/reject actions to the server's one-time approval checkpoint. JSON export remains disabled until the server confirms persistence, then retrieves the saved dossier from the session endpoint. TrueForge live mode uses the same UI contract; future streaming support can replace the current request/response transition with incremental subagent events without changing the layout.

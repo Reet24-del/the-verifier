@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { runVerification, submitApproval } from '../src/lib/verifierApi.js';
+import { getDossier, runVerification, submitApproval } from '../src/lib/verifierApi.js';
 
 function jsonResponse(status, body) {
   return {
@@ -102,4 +102,27 @@ test('submitApproval sends the server token and decision to the correct session'
   });
   assert.equal(response.session.status, 'saved');
   assert.equal(response.dossier.id, sessionId);
+});
+
+test('getDossier retrieves only the server-persisted session dossier', async () => {
+  let request;
+  const sessionId = '33333333-3333-4333-8333-333333333333';
+  const dossier = {
+    id: sessionId,
+    brief: 'Verify the current CEO.',
+    result: { status: 'resolved', findings: [], resolution: { evidence: [] } },
+    savedAt: '2026-08-29T12:00:00.000Z',
+  };
+  const fetchImpl = async (url, options) => {
+    request = { url, options };
+    return jsonResponse(200, { dossier });
+  };
+
+  const response = await getDossier({ sessionId, fetchImpl });
+
+  assert.deepEqual(request, {
+    url: `/api/sessions/${sessionId}/dossier`,
+    options: { method: 'GET' },
+  });
+  assert.deepEqual(response, dossier);
 });

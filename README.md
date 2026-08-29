@@ -64,7 +64,7 @@ A result requires two independent sources with strong date evidence and a unique
 
 | Layer | Responsibility |
 |---|---|
-| React + Vite UI | Brief entry, opposing evidence lanes, resolver table, approval state, and dossier summary |
+| React + Vite UI | Brief entry, opposing evidence lanes, resolver table, approval state, dossier summary, and approved JSON export |
 | Node HTTP server | Session state machine, workflow execution, approval-token validation, and dossier persistence |
 | Research adapters | Credential-free fixture adapter or TrueForge session/turn adapter |
 | Metadata resolver | Pure shared module for deterministic extraction, normalization, and recency policy |
@@ -183,8 +183,8 @@ The test suite covers:
 - TrueForge's real session/turn HTTP envelopes through a local fake server;
 - failed, cancelled, malformed, and successful live turns;
 - invalid approval tokens, rejection, persistence, and post-restart retrieval.
-- browser session/workflow requests and server error propagation;
-- React evidence, approval, saved, and recoverable error states.
+- browser session/workflow/dossier requests and server error propagation;
+- React evidence, approval, saved, export-gating, and recoverable error states.
 
 Some restricted execution environments prohibit binding localhost ports. In that environment, socket-based integration tests report `EPERM`; pure resolver tests and the production build remain runnable.
 
@@ -192,6 +192,7 @@ Some restricted execution environments prohibit binding localhost ports. In that
 
 - Session and approval IDs are generated with `crypto.randomUUID()`.
 - A dossier is written only after workflow completion and explicit `approved: true` with the matching token.
+- Export retrieves the server-persisted dossier and remains disabled until that save is confirmed.
 - Rejection clears the token and persists nothing.
 - Generated dossiers and environment files are ignored by Git.
 - Live source URLs, claims, and metadata are structurally validated.
@@ -218,7 +219,7 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Parallel fixture and TrueForge research adapters
 - [x] Official TrueForge HTTP-envelope contract tests
 - [x] Connect the React UI to the session API
-- [ ] Add saved-dossier export after approval
+- [x] Add saved-dossier export after approval
 - [ ] Complete live credentialed TrueForge rehearsal
 - [ ] Attach Qodo review evidence and final demo video
 

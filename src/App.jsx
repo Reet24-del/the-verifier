@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { runVerification, submitApproval } from './lib/verifierApi.js'
+import { getDossier, runVerification, submitApproval } from './lib/verifierApi.js'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 const defaultApi = {
   runVerification: (options) => runVerification({ ...options, apiBaseUrl }),
   submitApproval: (options) => submitApproval({ ...options, apiBaseUrl }),
+  getDossier: (options) => getDossier({ ...options, apiBaseUrl }),
 }
 const defaultBrief = 'Verify that Brian Niccol is CEO of Starbucks.'
 
@@ -49,12 +50,25 @@ function conclusionFor(runState, result) {
   }
 }
 
-export default function App({ api = defaultApi }) {
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export default function App({ api = defaultApi, saveJson = downloadJson }) {
   const [brief, setBrief] = useState(defaultBrief)
   const [runState, setRunState] = useState('ready')
   const [workflow, setWorkflow] = useState(null)
   const [session, setSession] = useState(null)
   const [notice, setNotice] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const result = workflow?.result ?? null
   const resolver = result?.resolution ?? null
@@ -103,6 +117,9 @@ export default function App({ api = defaultApi }) {
         approvalToken: workflow.approvalToken,
         approved,
       })
+      if (approved && response.session?.status !== 'saved') {
+        throw new Error('The server did not confirm dossier persistence.')
+      }
       setSession(response.session)
       setWorkflow((current) => ({ ...current, approvalToken: null }))
       setRunState(approved ? 'saved' : 'rejected')
@@ -112,6 +129,22 @@ export default function App({ api = defaultApi }) {
     } catch (error) {
       setRunState('awaiting_approval')
       setNotice(error instanceof Error ? error.message : 'The approval request failed')
+    }
+  }
+
+  const exportDossier = async () => {
+    if (runState !== 'saved' || !session?.id || exporting) return
+
+    setExporting(true)
+    setNotice('Preparing the saved dossier…')
+    try {
+      const dossier = await api.getDossier({ sessionId: session.id })
+      saveJson(`the-verifier-${session.id}.json`, dossier)
+      setNotice('Dossier downloaded from the server-persisted record.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Dossier export failed')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -134,7 +167,7 @@ export default function App({ api = defaultApi }) {
       <header className="topbar">
         <div className="brand">THE VERIFIER</div>
         <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} · approval required for save</div>
-        <button className="button secondary" onClick={() => setNotice('Export becomes available after approval.')}>Export dossier</button>
+        <button className="button secondary" disabled={runState !== 'saved' || exporting} onClick={exportDossier}>{exporting ? 'Preparing…' : 'Export dossier'}</button>
       </header>
 
       <div className="workspace">
