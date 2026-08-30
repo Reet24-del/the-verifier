@@ -112,3 +112,25 @@ test('returns unresolved when two strong signals come from the same source', () 
   assert.equal(result.status, 'unresolved');
   assert.match(result.message, /two.*source|independent/i);
 });
+
+test('resolves copied live search-provider publication dates from independent sources', () => {
+  const result = resolveMetadata([
+    { title: 'Current source', url: 'https://example.test/current', publishedAt: '2024-08-13T00:00:00Z' },
+    { title: 'Older source', url: 'https://example.test/older', publishedAt: '2024-07-30T00:00:00Z' },
+  ]);
+
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.newest.title, 'Current source');
+  assert.equal(result.newest.provenance, 'search-provider');
+});
+
+test('resolves copied live search-provider publication dates from independent sources', () => {
+  const result = resolveMetadata([
+    { title: 'Current source', url: 'https://example.test/current', publishedAt: '2024-08-13T00:00:00Z' },
+    { title: 'Older source', url: 'https://example.test/older', publishedAt: '2024-07-30T00:00:00Z' },
+  ]);
+
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.newest.title, 'Current source');
+  assert.equal(result.newest.provenance, 'search-provider');
+});

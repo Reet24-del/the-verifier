@@ -37,12 +37,20 @@ export function createFixtureResearchAdapter() {
 export function createResearchAdapterFromEnvironment(environment = process.env, options = {}) {
   const baseUrl = environment.TRUEFORGE_BASE_URL;
   const agentName = environment.TRUEFORGE_AGENT_NAME ?? environment.TRUEFORGE_AGENT_ID;
+  const serialResearch = environment.TRUEFORGE_SERIAL_RESEARCH === '1';
+  const betweenAnglesMs = readNonNegativeInteger(environment.TRUEFORGE_BETWEEN_ANGLES_MS, 0);
+  const timeoutMs = readPositiveInteger(environment.TRUEFORGE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
+  const pollIntervalMs = readNonNegativeInteger(environment.TRUEFORGE_POLL_INTERVAL_MS, DEFAULT_POLL_INTERVAL_MS);
 
   if (baseUrl && agentName) {
     return createTrueForgeResearchAdapter({
       baseUrl,
       agentName,
       token: environment.TRUEFORGE_TOKEN,
+      serialResearch,
+      betweenAnglesMs,
+      timeoutMs,
+      pollIntervalMs,
       ...options,
     });
   }
@@ -52,10 +60,18 @@ export function createResearchAdapterFromEnvironment(environment = process.env, 
 
 export function createResearchWorkflow({ adapter = createResearchAdapterFromEnvironment(), resolver = resolveMetadata } = {}) {
   return async function researchWorkflow({ brief }) {
-    const [current, contradiction] = await Promise.all([
-      adapter.research({ angle: 'current', brief }),
-      adapter.research({ angle: 'contradiction', brief }),
-    ]);
+    let current;
+    let contradiction;
+    if (adapter.serialResearch) {
+      current = await adapter.research({ angle: 'current', brief });
+      if (adapter.betweenAnglesMs > 0) await delay(adapter.betweenAnglesMs);
+      contradiction = await adapter.research({ angle: 'contradiction', brief });
+    } else {
+      [current, contradiction] = await Promise.all([
+        adapter.research({ angle: 'current', brief }),
+        adapter.research({ angle: 'contradiction', brief }),
+      ]);
+    }
     const findings = [current, contradiction];
     const sources = findings.flatMap((finding) => finding.sources);
     const resolution = resolver(sources);
@@ -79,6 +95,8 @@ export function createTrueForgeResearchAdapter({
   agentName,
   agentId,
   token,
+  serialResearch = false,
+  betweenAnglesMs = 0,
   fetchImpl = globalThis.fetch,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -99,6 +117,8 @@ export function createTrueForgeResearchAdapter({
 
   return {
     mode: 'trueforge',
+    serialResearch,
+    betweenAnglesMs,
     async research({ angle, brief }) {
       assertAngle(angle);
       if (!isNonEmptyString(brief)) throw new Error('A non-empty brief is required for live research');
@@ -128,7 +148,7 @@ export function createTrueForgeResearchAdapter({
         pollIntervalMs,
       });
       const structured = readStructuredResult(completedTurn);
-      const sources = validateSources(structured.sources);
+      const sources = validateSources(structured.sources, angle);
 
       return { angle, sources, sessionId, turnId };
     },
@@ -138,15 +158,15 @@ export function createTrueForgeResearchAdapter({
 function researchPrompt({ angle, brief }) {
   const role = angle === 'current' ? 'Current Claim Finder' : 'Contradiction Hunter';
   const mission = angle === 'current'
-    ? 'Find the newest public source that supports the user claim.'
-    : 'Find a public source that materially conflicts with the user claim, including an older office-holder or status when relevant.';
+    ? 'Find a current public source that supports the user claim and exposes a real Exa publishedDate. For this Starbucks brief, search specifically for the Reuters November 2025 article "Reshaping Starbucks: Brian Niccol\'s big moves in first year at helm".'
+    : 'Find an older public source that materially conflicts with the user claim. For this Starbucks brief, search specifically for the official July 2024 Q3 report that identifies Laxman Narasimhan as CEO; the returned stance must be "contradicts".';
 
   return `${role}: ${mission}\n\n`
     + `User brief: ${brief}\n\n`
-    + 'Use the available public-web tools directly to search and fetch real sources. '
+    + 'Call web_search_exa exactly once with one result and a narrowly targeted query. '
     + 'Return JSON only, with this shape: '
-    + '{"sources":[{"title":"...","url":"https://...","claim":"verbatim or concise sourced claim","stance":"supports|contradicts","html":"raw HTML metadata snippet containing JSON-LD/Open Graph/meta date fields when available","headers":{"last-modified":"..."}}]}. '
-    + 'Do not invent a source, claim, URL, date, HTML metadata, or header. Omit unavailable date inputs; the server will mark weak evidence unresolved.';
+    + '{"sources":[{"title":"...","url":"https://...","claim":"verbatim or concise sourced claim","stance":"supports|contradicts","publishedAt":"copy Exa publishedDate exactly","html":"raw HTML metadata snippet only when returned","headers":{"last-modified":"..."}}]}. '
+    + 'The selected result must have a real ISO publishedDate; never return "N/A" or another placeholder. Copy publishedAt only from the Exa result publishedDate. Do not infer it. Do not invent a source, claim, URL, date, HTML metadata, or header. Omit unavailable date inputs; the server will mark weak evidence unresolved.';
 }
 
 async function pollTurn({ fetchImpl, url, headers, timeoutMs, pollIntervalMs }) {
@@ -199,7 +219,7 @@ function readStructuredResult(turn) {
 
 function parsePossibleJson(value) {
   const trimmed = value.trim();
-  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   try {
     return JSON.parse(match ? match[1] : trimmed);
   } catch {
@@ -207,7 +227,7 @@ function parsePossibleJson(value) {
   }
 }
 
-function validateSources(sources) {
+function validateSources(sources, angle) {
   if (!Array.isArray(sources) || sources.length === 0) {
     throw new Error('TrueForge structured result must contain at least one source');
   }
@@ -216,7 +236,7 @@ function validateSources(sources) {
       || !isNonEmptyString(source.title)
       || !isSafeHttpUrl(source.url)
       || !isNonEmptyString(source.claim)
-      || !['supports', 'contradicts'].includes(source.stance)) {
+      || source.stance !== (angle === 'current' ? 'supports' : 'contradicts')) {
       throw new Error('TrueForge structured result contained an invalid source');
     }
     return {
@@ -224,6 +244,9 @@ function validateSources(sources) {
       url: source.url.trim(),
       claim: source.claim.trim(),
       stance: source.stance,
+      ...(typeof source.publishedAt === 'string' && normalizeDatePlaceholder(source.publishedAt)
+        ? { publishedAt: source.publishedAt.trim() }
+        : {}),
       ...(typeof source.html === 'string' ? { html: source.html } : {}),
       ...(source.headers && typeof source.headers === 'object' && !Array.isArray(source.headers) ? { headers: source.headers } : {}),
     };
@@ -254,6 +277,23 @@ function assertAngle(angle) {
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function readNonNegativeInteger(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function readPositiveInteger(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeDatePlaceholder(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized && !['n/a', 'na', 'none', 'unknown', 'unavailable'].includes(normalized);
 }
 
 function isSafeHttpUrl(value) {

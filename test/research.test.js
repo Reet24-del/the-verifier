@@ -80,6 +80,39 @@ test('research workflow starts opposing research angles concurrently and resolve
   assert.equal(result.resolution.newest.url, 'https://example.test/current');
 });
 
+test('research workflow can serialize live angles for rate-limited providers', async () => {
+  const calls = [];
+  let active = 0;
+  let maxActive = 0;
+  const adapter = {
+    serialResearch: true,
+    betweenAnglesMs: 0,
+    async research({ angle }) {
+      calls.push(angle);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      return {
+        angle,
+        sources: [{
+          title: `${angle} source`,
+          url: `https://example.test/${angle}`,
+          claim: `${angle} claim`,
+          stance: angle === 'current' ? 'supports' : 'contradicts',
+          html: `<script type="application/ld+json">{"datePublished":"2026-08-2${angle === 'current' ? '5' : '4'}T00:00:00Z"}</script>`,
+        }],
+      };
+    },
+  };
+
+  const result = await createResearchWorkflow({ adapter })({ brief: 'Verify a claim.' });
+
+  assert.deepEqual(calls, ['current', 'contradiction']);
+  assert.equal(maxActive, 1);
+  assert.equal(result.status, 'resolved');
+});
+
 test('TrueForge adapter follows the official HTTP envelopes through a done turn', async (t) => {
   const fake = await startFakeTrueForge(t, (request) => {
     if (request.method === 'POST' && request.path === '/api/v1/sessions') {

@@ -57,8 +57,9 @@ The resolver evaluates source-local signals in this order:
 
 1. JSON-LD `dateModified` and `datePublished`
 2. Open Graph `article:modified_time` and `article:published_time`
-3. Standard HTML date metadata
-4. HTTP `Last-Modified` as weak corroboration only
+3. Live search-provider `publishedDate` copied without inference
+4. Standard HTML date metadata
+5. HTTP `Last-Modified` as weak corroboration only
 
 A result requires two independent sources with strong date evidence and a unique newest timestamp. Raw values, normalized UTC values, strength, and provenance are preserved for inspection.
 
@@ -137,10 +138,19 @@ export TRUEFORGE_BASE_URL="http://localhost:8790/api/v1"
 export TRUEFORGE_AGENT_NAME="verifier-researcher"
 # Optional when the TrueForge instance requires authentication:
 export TRUEFORGE_TOKEN="your-server-side-token"
+# Optional for free-tier providers with a low per-minute token allowance:
+export TRUEFORGE_SERIAL_RESEARCH="1"
+export TRUEFORGE_BETWEEN_ANGLES_MS="65000"
+# Optional when a provider-side queue makes live turns take longer:
+export TRUEFORGE_TIMEOUT_MS="360000"
 npm run server
 ```
 
 `TRUEFORGE_AGENT_ID` is accepted as a compatibility alias, but `TRUEFORGE_AGENT_NAME` matches the current TrueForge session API.
+
+By default the two angles run concurrently. `TRUEFORGE_SERIAL_RESEARCH=1` preserves both opposing live searches while running them one at a time; `TRUEFORGE_BETWEEN_ANGLES_MS` adds a provider cooldown. This is useful for Groq accounts whose token-per-minute limit cannot accommodate two tool-using turns at once.
+
+The Groq free-tier Qwen limit can also be lower than a complete TrueForge tool cycle. For that setup, point the saved Groq provider base URL to `http://127.0.0.1:8791/openai/v1`, start `npm run groq-proxy` in a separate terminal, and set `TRUEFORGE_TIMEOUT_MS=360000`. The loopback-only proxy forwards the existing authorization header without logging or storing it and spaces upstream requests across Groq's rate window.
 
 Live research follows the official HTTP flow:
 
@@ -226,7 +236,7 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Connect the React UI to the session API
 - [x] Add saved-dossier export after approval
 - [x] Complete speech input, spoken result, and voice approval with text fallbacks
-- [ ] Complete live credentialed TrueForge rehearsal
+- [x] Complete live credentialed TrueForge rehearsal — [evidence](docs/live-rehearsal.md)
 - [x] Attach Qodo review evidence in [PR #1](https://github.com/Reet24-del/the-verifier/pull/1)
 - [ ] Record the final demo video
 

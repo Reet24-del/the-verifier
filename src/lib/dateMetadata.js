@@ -96,6 +96,12 @@ function httpHeaderSignals(headers) {
   return raw ? [{ field: 'Last-Modified', raw, provenance: 'http-header', strength: WEAK }] : [];
 }
 
+function providerMetadataSignals(source) {
+  return typeof source.publishedAt === 'string' && source.publishedAt.trim()
+    ? [{ field: 'publishedAt', raw: source.publishedAt, provenance: 'search-provider', strength: STRONG }]
+    : [];
+}
+
 function normalizeSignal(signal, source) {
   const raw = typeof signal.raw === 'string' ? signal.raw : String(signal.raw ?? '');
   return {
@@ -119,7 +125,9 @@ function selectStrong(records) {
   if (invalid) return { record: invalid, issue: 'invalid' };
 
   const modified = firstDistinct(normalized.filter((record) => record.field === 'dateModified' || record.field === 'article:modified_time'));
-  const published = firstDistinct(normalized.filter((record) => record.field === 'datePublished' || record.field === 'article:published_time'));
+  const published = firstDistinct(normalized.filter((record) => record.field === 'datePublished'
+    || record.field === 'article:published_time'
+    || record.field === 'publishedAt'));
 
   if (modified.length > 1 || published.length > 1) {
     return { record: modified[0] ?? published[0], issue: 'ambiguous' };
@@ -149,6 +157,7 @@ function selectSourceEvidence(source) {
   const groups = [
     jsonLdSignals(html),
     openGraphSignals(tags),
+    providerMetadataSignals(source),
     standardMetadataSignals(tags),
     httpHeaderSignals(source.headers),
   ];
