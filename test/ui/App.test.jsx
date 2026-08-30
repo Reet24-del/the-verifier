@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -127,6 +127,65 @@ describe('The Verifier workflow', () => {
     }]);
     expect(await screen.findByText('Saved with approval')).toBeTruthy();
     expect(spoken.at(-1)).toBe('Saved.');
+  });
+
+  it('keeps approval disabled until narration finishes', async () => {
+    let finishNarration;
+    const narration = new Promise((resolve) => { finishNarration = resolve; });
+    const api = {
+      runVerification: async () => workflow,
+      submitApproval: async () => { throw new Error('not used'); },
+      getDossier: async () => { throw new Error('not used'); },
+    };
+    const voice = {
+      recognitionSupported: true,
+      listen: async () => 'Yes',
+      speak: async () => narration,
+    };
+    const user = userEvent.setup();
+    render(<App api={api} voice={voice} />);
+
+    await user.click(screen.getByRole('button', { name: /verify brief/i }));
+    const voiceButton = await screen.findByRole('button', { name: /answer by voice/i });
+    expect(voiceButton.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /approve & save/i }).hasAttribute('disabled')).toBe(true);
+
+    finishNarration(true);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /answer by voice/i }).hasAttribute('disabled')).toBe(false);
+    });
+  });
+
+  it('disables button decisions while a voice approval is being captured', async () => {
+    let finishListening;
+    const listening = new Promise((resolve) => { finishListening = resolve; });
+    const decisions = [];
+    const api = {
+      runVerification: async () => workflow,
+      submitApproval: async (decision) => {
+        decisions.push(decision);
+        return { session: { id: sessionId, status: 'saved' } };
+      },
+      getDossier: async () => { throw new Error('not used'); },
+    };
+    const voice = {
+      recognitionSupported: true,
+      listen: async () => listening,
+      speak: async () => true,
+    };
+    const user = userEvent.setup();
+    render(<App api={api} voice={voice} />);
+
+    await user.click(screen.getByRole('button', { name: /verify brief/i }));
+    await user.click(await screen.findByRole('button', { name: /answer by voice/i }));
+
+    expect(screen.getByRole('button', { name: /approve & save/i }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /keep investigating/i }).hasAttribute('disabled')).toBe(true);
+    expect(decisions).toEqual([]);
+
+    finishListening('Yes, go ahead');
+    expect(await screen.findByText('Saved with approval')).toBeTruthy();
+    expect(decisions).toHaveLength(1);
   });
 
   it('keeps typed verification and button approval available without speech recognition', async () => {
