@@ -59,6 +59,46 @@ const workflow = {
 afterEach(cleanup);
 
 describe('The Verifier workflow', () => {
+  it('keeps evidence-backed follow-ups in one conversation without rerunning research', async () => {
+    const conversationId = 'conversation-1';
+    const initialMessages = [
+      { id: 'm1', role: 'user', text: 'Verify the Starbucks CEO.' },
+      { id: 'm2', role: 'assistant', text: workflow.result.summary },
+    ];
+    const createConversation = vi.fn(async () => ({
+      ...workflow,
+      conversation: { id: conversationId, messages: initialMessages, activeInvestigation: { ...workflow, sessionId } },
+    }));
+    const sendConversationMessage = vi.fn(async ({ message }) => ({
+      conversation: {
+        id: conversationId,
+        messages: [...initialMessages,
+          { id: 'm3', role: 'user', text: message },
+          { id: 'm4', role: 'assistant', text: 'The August announcement is newer than the July filing.' }],
+      },
+      messages: [{ id: 'm4', role: 'assistant', text: 'The August announcement is newer than the July filing.' }],
+      requiresResearch: false,
+    }));
+    const api = {
+      createConversation,
+      sendConversationMessage,
+      submitApproval: async () => { throw new Error('not used'); },
+      getDossier: async () => { throw new Error('not used'); },
+    };
+    const storage = { read: () => null, write: vi.fn(), clear: vi.fn() };
+    const user = userEvent.setup();
+    render(<App api={api} conversationStorage={storage} />);
+
+    await user.click(screen.getByRole('button', { name: /verify brief/i }));
+    const composer = screen.getByRole('textbox', { name: /message the verifier/i });
+    await user.type(composer, 'Which source is newer?');
+    await user.click(screen.getByRole('button', { name: /send follow-up/i }));
+
+    expect(await screen.findByText('The August announcement is newer than the July filing.')).toBeTruthy();
+    expect(createConversation).toHaveBeenCalledTimes(1);
+    expect(sendConversationMessage).toHaveBeenCalledWith({ conversationId, message: 'Which source is newer?' });
+  });
+
   it('explains the product and leads into the live workflow', async () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
@@ -75,7 +115,7 @@ describe('The Verifier workflow', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
   });
 
-  it('captures a spoken brief and requires transcript confirmation before verification', async () => {
+  it('starts an investigation by voice and keeps the conversation listening', async () => {
     const calls = [];
     const api = {
       runVerification: async ({ brief }) => {
@@ -85,25 +125,25 @@ describe('The Verifier workflow', () => {
       submitApproval: async () => { throw new Error('not used'); },
       getDossier: async () => { throw new Error('not used'); },
     };
+    let holdNextCapture;
+    const nextCapture = new Promise((resolve) => { holdNextCapture = resolve; });
     const voice = {
       recognitionSupported: true,
-      listen: async () => 'Verify that Brian Niccol is CEO of Starbucks',
+      listen: vi.fn()
+        .mockResolvedValueOnce('Verify that Brian Niccol is CEO of Starbucks')
+        .mockReturnValueOnce(nextCapture),
       speak: async () => {},
     };
     const user = userEvent.setup();
     render(<App api={api} voice={voice} />);
 
-    await user.click(screen.getByRole('button', { name: /speak brief/i }));
+    await user.click(screen.getByRole('button', { name: /start voice conversation/i }));
 
-    expect(await screen.findByText(/I heard:/i)).toBeTruthy();
-    expect(screen.getByRole('textbox', { name: /brief to verify/i }).value).toBe(
-      'Verify that Brian Niccol is CEO of Starbucks',
-    );
-    expect(calls).toEqual([]);
-
-    await user.click(screen.getByRole('button', { name: /confirm & verify/i }));
-
-    expect(calls).toEqual(['Verify that Brian Niccol is CEO of Starbucks']);
+    await waitFor(() => expect(calls).toEqual(['Verify that Brian Niccol is CEO of Starbucks']));
+    await waitFor(() => expect(voice.listen).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: /stop listening/i })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /stop listening/i }));
+    holdNextCapture('stale');
   });
 
   it('speaks the result and accepts an explicit voice approval', async () => {
@@ -247,10 +287,10 @@ describe('The Verifier workflow', () => {
     const user = userEvent.setup();
     render(<App voice={voice} />);
 
-    await user.click(screen.getByRole('button', { name: /speak brief/i }));
+    await user.click(screen.getByRole('button', { name: /start voice conversation/i }));
 
     expect(await screen.findByText(/Browser speech recognition is unavailable right now/i)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /speak brief/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /start voice conversation/i })).toBeNull();
     expect(screen.getByRole('textbox', { name: /brief to verify/i }).hasAttribute('disabled')).toBe(false);
     expect(screen.getByText(/Voice is unavailable in this browser session\. Type your brief instead/i)).toBeTruthy();
   });

@@ -1,14 +1,31 @@
-import { useMemo, useRef, useState } from 'react'
-import { getDossier, runVerification, submitApproval } from './lib/verifierApi.js'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import ConversationComposer from './components/ConversationComposer.jsx'
+import ConversationThread from './components/ConversationThread.jsx'
+import { useVoiceConversation } from './hooks/useVoiceConversation.js'
+import { createConversationStorage } from './lib/conversationStorage.js'
+import {
+  createConversation,
+  getConversation,
+  getDossier,
+  researchConversationAgain,
+  runVerification,
+  sendConversationMessage,
+  submitApproval,
+} from './lib/verifierApi.js'
 import { approvalDecisionFromTranscript, buildApprovalPrompt, createBrowserVoice } from './lib/speech.js'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 const defaultApi = {
+  createConversation: (options) => createConversation({ ...options, apiBaseUrl }),
+  getConversation: (options) => getConversation({ ...options, apiBaseUrl }),
+  sendConversationMessage: (options) => sendConversationMessage({ ...options, apiBaseUrl }),
+  researchConversationAgain: (options) => researchConversationAgain({ ...options, apiBaseUrl }),
   runVerification: (options) => runVerification({ ...options, apiBaseUrl }),
   submitApproval: (options) => submitApproval({ ...options, apiBaseUrl }),
   getDossier: (options) => getDossier({ ...options, apiBaseUrl }),
 }
 const defaultBrief = 'Verify that Brian Niccol is CEO of Starbucks.'
+const defaultConversationStorage = createConversationStorage()
 
 const sourceGroups = [
   { key: 'current', label: 'Current Claim Finder', description: 'Seeks current evidence supporting the claim.', tone: 'amber' },
@@ -61,7 +78,12 @@ function downloadJson(filename, data) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-export default function App({ api = defaultApi, saveJson = downloadJson, voice = createBrowserVoice() }) {
+export default function App({
+  api = defaultApi,
+  saveJson = downloadJson,
+  voice = createBrowserVoice(),
+  conversationStorage = defaultConversationStorage,
+}) {
   const [brief, setBrief] = useState(defaultBrief)
   const [spokenBrief, setSpokenBrief] = useState('')
   const [runState, setRunState] = useState('ready')
@@ -73,6 +95,12 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
   const [approvalPrompt, setApprovalPrompt] = useState('')
   const [narrating, setNarrating] = useState(false)
   const [voiceUnavailable, setVoiceUnavailable] = useState(false)
+  const [conversation, setConversation] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [draft, setDraft] = useState('')
+  const [conversationBusy, setConversationBusy] = useState(false)
+  const [requiresResearch, setRequiresResearch] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const approvalActionRef = useRef(false)
 
   const result = workflow?.result ?? null
@@ -85,7 +113,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
   const hasConflict = allSources.some((source) => source.stance === 'supports')
     && allSources.some((source) => source.stance === 'contradicts')
   const conclusion = conclusionFor(runState, result)
-  const isBusy = runState === 'running' || runState === 'saving' || runState === 'rejecting' || listeningFor !== null || narrating
+  const isBusy = runState === 'running' || runState === 'saving' || runState === 'rejecting' || listeningFor !== null || narrating || conversationBusy
   const awaitingApproval = runState === 'awaiting_approval'
   const voiceAvailable = voice.recognitionSupported && !voiceUnavailable
 
@@ -105,8 +133,23 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
     }
   }
 
-  const runInvestigation = async () => {
-    if (!brief.trim()) {
+  const applyCompletedInvestigation = (completed, activeBrief) => {
+    const nextConversation = completed.conversation ?? null
+    const nextMessages = nextConversation?.messages ?? [
+      { id: `brief-${completed.session.id}`, role: 'user', text: activeBrief, kind: 'brief' },
+      { id: `result-${completed.session.id}`, role: 'assistant', text: completed.result.summary, kind: 'result' },
+    ]
+    setConversation(nextConversation)
+    setMessages(nextMessages)
+    if (nextConversation?.id) conversationStorage.write(nextConversation.id)
+    setWorkflow({ result: completed.result, approvalToken: completed.approvalToken })
+    setSession(completed.session)
+    setRequiresResearch(false)
+  }
+
+  const runInvestigation = async (briefOverride) => {
+    const activeBrief = typeof briefOverride === 'string' ? briefOverride.trim() : brief.trim()
+    if (!activeBrief) {
       setRunState('error')
       setNotice('Enter a brief before starting the investigation.')
       return
@@ -119,10 +162,12 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
     approvalActionRef.current = false
     setNotice('Both research agents are working in parallel…')
     try {
-      const completed = await api.runVerification({ brief })
+      const completed = typeof api.createConversation === 'function'
+        ? await api.createConversation({ brief: activeBrief })
+        : await api.runVerification({ brief: activeBrief })
       const prompt = buildApprovalPrompt(completed.result)
-      setWorkflow(completed)
-      setSession(completed.session)
+      setBrief(activeBrief)
+      applyCompletedInvestigation(completed, activeBrief)
       setRunState('awaiting_approval')
       setSpokenBrief('')
       setApprovalPrompt(prompt)
@@ -134,6 +179,63 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
       setNarrating(false)
       setRunState('error')
       setNotice(error instanceof Error ? error.message : 'Workflow execution failed')
+    }
+  }
+
+  const sendFollowUp = async (messageOverride) => {
+    const message = typeof messageOverride === 'string' ? messageOverride.trim() : draft.trim()
+    if (!message || !conversation?.id || typeof api.sendConversationMessage !== 'function') {
+      if (!conversation?.id) setNotice('Run an investigation before asking a follow-up question.')
+      return
+    }
+
+    setConversationBusy(true)
+    setNotice('Checking your question against the active evidence…')
+    try {
+      const response = await api.sendConversationMessage({ conversationId: conversation.id, message })
+      setConversation(response.conversation)
+      setMessages(response.conversation?.messages ?? [...messages, ...(response.messages ?? [])])
+      setDraft('')
+      setRequiresResearch(Boolean(response.requiresResearch))
+      const responseMessages = response.messages ?? response.conversation?.messages ?? []
+      const assistantText = [...responseMessages].reverse().find((item) => item.role === 'assistant')?.text
+      setNotice(response.requiresResearch
+        ? 'That question needs fresh web research. Review it, then choose Research again.'
+        : 'Answered from the active evidence without rerunning research.')
+      if (assistantText) await voice.speak(assistantText)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The follow-up could not be answered.')
+      throw error
+    } finally {
+      setConversationBusy(false)
+    }
+  }
+
+  const researchAgain = async (briefOverride) => {
+    const nextBrief = typeof briefOverride === 'string' && briefOverride.trim()
+      ? briefOverride.trim()
+      : draft.trim() || brief.trim()
+    if (!conversation?.id || typeof api.researchConversationAgain !== 'function') return
+
+    setConversationBusy(true)
+    setRunState('running')
+    setNotice('Running a fresh investigation for this conversation…')
+    try {
+      const completed = await api.researchConversationAgain({ conversationId: conversation.id, brief: nextBrief })
+      const prompt = buildApprovalPrompt(completed.result)
+      applyCompletedInvestigation(completed, nextBrief)
+      setBrief(nextBrief)
+      setDraft('')
+      setApprovalPrompt(prompt)
+      setRunState('awaiting_approval')
+      setNotice('Fresh evidence is ready. The new result still requires your approval before saving.')
+      await voice.speak(prompt)
+    } catch (error) {
+      setRunState(result ? 'awaiting_approval' : 'error')
+      setNotice(error instanceof Error ? error.message : 'Fresh research failed.')
+      throw error
+    } finally {
+      setConversationBusy(false)
     }
   }
 
@@ -164,6 +266,11 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
       setNotice(approved
         ? 'The server persisted the dossier after your approval.'
         : 'Approval rejected. The server saved no dossier.')
+      if (conversation?.id && typeof api.getConversation === 'function') {
+        const updatedConversation = await api.getConversation({ conversationId: conversation.id })
+        setConversation(updatedConversation)
+        setMessages(updatedConversation.messages ?? [])
+      }
       void voice.speak(approved ? 'Saved.' : 'Not saved. Tell me what you would like to adjust.')
     } catch (error) {
       approvalActionRef.current = false
@@ -210,6 +317,72 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
       setExporting(false)
     }
   }
+
+  const handleVoiceTranscript = async (transcript) => {
+    if (awaitingApproval) {
+      const approved = approvalDecisionFromTranscript(transcript)
+      if (approved !== null) {
+        await decide(approved)
+        return
+      }
+    }
+    if (!conversation?.id) {
+      setBrief(transcript)
+      await runInvestigation(transcript)
+      return
+    }
+    await sendFollowUp(transcript)
+  }
+
+  const voiceConversation = useVoiceConversation({
+    voice,
+    onTranscript: handleVoiceTranscript,
+    onFatalError: (error) => {
+      setVoiceUnavailable(true)
+      setNotice(error instanceof Error ? error.message : 'Voice conversation stopped. Continue by typing below.')
+    },
+  })
+
+  useEffect(() => {
+    if (typeof api.getConversation !== 'function') return undefined
+    const conversationId = conversationStorage.read()
+    if (!conversationId) return undefined
+
+    let cancelled = false
+    setRestoring(true)
+    api.getConversation({ conversationId })
+      .then((restored) => {
+        if (cancelled) return
+        const active = restored.activeInvestigation
+        setConversation(restored)
+        setMessages(restored.messages ?? [])
+        if (active?.result) {
+          setBrief(active.brief)
+          setWorkflow({ result: active.result, approvalToken: null })
+          setSession({ id: active.sessionId, status: active.status })
+          setApprovalPrompt(buildApprovalPrompt(active.result))
+          if (active.status === 'saved') setRunState('saved')
+          else if (active.status === 'rejected') setRunState('rejected')
+          else {
+            setRunState('approval_expired')
+            setRequiresResearch(true)
+            setNotice('Conversation restored. For safety, run Research again to issue a new approval checkpoint.')
+          }
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        conversationStorage.clear()
+        if (error?.code !== 'conversation_not_found') {
+          setNotice('The previous conversation could not be restored. You can start a new one below.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRestoring(false)
+      })
+
+    return () => { cancelled = true }
+  }, [api, conversationStorage])
 
   const verifyButtonLabel = runState === 'running'
     ? 'Investigating…'
@@ -346,12 +519,31 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
             <div className="brief-input-wrap">
               <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => { setBrief(event.target.value); setSpokenBrief('') }} />
               <div className="brief-actions">
-                {voiceAvailable && <button className="button secondary compact" disabled={isBusy} onClick={captureBrief}>{listeningFor === 'brief' ? 'Listening…' : 'Speak brief'}</button>}
-                <button className="button primary compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
+                <button className="button primary compact" disabled={isBusy || !brief.trim()} onClick={() => runInvestigation()}>{verifyButtonLabel}</button>
               </div>
             </div>
-            <p className="input-meta">{voiceAvailable ? 'Speak, confirm the transcript, or type your claim.' : voiceUnavailable ? 'Voice is unavailable in this browser session. Type your brief instead.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} <span>Demo uses pinned public Starbucks sources.</span></p>
+            <p className="input-meta">{voiceAvailable ? 'Type the brief, or start one continuous voice conversation below.' : voiceUnavailable ? 'Voice is unavailable in this browser session. Type your brief instead.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} <span>Demo uses pinned public Starbucks sources.</span></p>
           </section>
+
+          <div className="conversation-workspace" aria-busy={conversationBusy || restoring}>
+            <ConversationThread messages={messages} busy={conversationBusy || restoring} />
+            <ConversationComposer
+              draft={draft}
+              onDraftChange={setDraft}
+              onSend={(event) => {
+                event.preventDefault()
+                if (conversation?.id) void sendFollowUp()
+                else if (draft.trim()) void runInvestigation(draft)
+              }}
+              onResearchAgain={() => void researchAgain()}
+              requiresResearch={requiresResearch || runState === 'approval_expired'}
+              voiceAvailable={voiceAvailable}
+              voiceMode={voiceConversation.mode}
+              onStartVoice={voiceConversation.start}
+              onStopVoice={voiceConversation.stop}
+              disabled={isBusy}
+            />
+          </div>
 
           <section className="panel timeline-panel">
             <div className="panel-heading-row">
@@ -398,7 +590,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
           <section className="approval-panel">
             <div className="approval-copy"><div className="section-heading"><span>4</span><div>Human approval<em>Server-enforced gate</em></div></div><h2>Save this verified brief?</h2><p>{approvalPrompt || 'Saving is blocked at the server until you explicitly decide.'}</p></div>
             <div className="approval-actions">
-              {voiceAvailable && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
+              {voiceAvailable && voiceConversation.mode === 'off' && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
               <button className="button primary" disabled={!awaitingApproval || isBusy} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
               <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={() => decide(false)}>Keep investigating</button>
             </div>

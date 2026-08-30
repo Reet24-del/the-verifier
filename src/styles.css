@@ -115,6 +115,7 @@ button { cursor: pointer; }
 .input-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin:10px 0 0; color:#92a3b9; font-size:11px; line-height:1.5; }
 .input-meta span { color:#71849e; }
 .conversation-panel { overflow:hidden; border:1px solid #30445f; border-radius:16px 16px 0 0; background:linear-gradient(180deg,rgba(16,31,51,.98),rgba(10,23,39,.98)); }
+.conversation-workspace { filter:drop-shadow(0 20px 44px rgba(0,0,0,.16)); }
 .conversation-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:22px 24px; border-bottom:1px solid #2a3f59; }
 .conversation-eyebrow { margin:0 0 6px; color:var(--amber); font-size:9px; font-weight:850; letter-spacing:.13em; text-transform:uppercase; }
 .conversation-heading h2 { margin:0; color:#f5f8fc; font-size:19px; letter-spacing:-.02em; }
