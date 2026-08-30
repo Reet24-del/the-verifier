@@ -10,3 +10,4 @@ coverage/
 work/
 data/dossiers/*.json
 !data/dossiers/.gitkeep
+.vercel

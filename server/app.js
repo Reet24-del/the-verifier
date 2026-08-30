@@ -7,9 +7,11 @@ import { createConversationResponderFromEnvironment } from './conversationRespon
 import { createConversationStore } from './conversationStore.js';
 import { createResearchWorkflow } from './research.js';
 
-const defaultDossierDirectory = fileURLToPath(new URL('../data/dossiers', import.meta.url));
+const defaultDossierDirectory = process.env.VERCEL
+  ? '/tmp/the-verifier-dossiers'
+  : fileURLToPath(new URL('../data/dossiers', import.meta.url));
 
-export function createServer({
+export function createRequestHandler({
   workflow = createResearchWorkflow(),
   dossierDirectory = defaultDossierDirectory,
   conversationStore = createConversationStore(),
@@ -48,7 +50,7 @@ export function createServer({
     });
   }
 
-  return http.createServer(async (request, response) => {
+  return async (request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       sendJson(response, 200, { status: 'ok' });
       return;
@@ -328,7 +330,11 @@ export function createServer({
     }
 
     sendJson(response, 404, error('not_found', 'Route not found'));
-  });
+  };
+}
+
+export function createServer(options = {}) {
+  return http.createServer(createRequestHandler(options));
 }
 
 function error(code, message) {
