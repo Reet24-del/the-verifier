@@ -8,11 +8,12 @@ The main design principle is **visible control**: agent work is observable; irre
 
 ## Primary screen
 
-The desktop experience is a two-column command console.
+The desktop experience is a two-column decision workspace.
 
-- **Left column:** the active verification workflow, arranged as a four-step sequence.
+- **Left column:** a prominent claim composer followed by the active verification workflow.
 - **Right column:** a sticky dossier that summarizes evidence, conclusion, and save state.
-- **Top bar:** wordmark, active-session indicator, and export action.
+- **Top bar:** product context, active-session indicator, and export action.
+- **Progress strip:** a persistent four-step indicator that makes the current gate obvious.
 
 The order of the workflow is fixed:
 
@@ -38,22 +39,27 @@ This sequence is intentional: the user should see the agent's work before being 
 | Green | `#5DCC9C` | Supporting evidence and confirmed save |
 
 - Background: midnight blue, with an extremely restrained cool-blue radial lift near the top left.
-- Surfaces: square-to-soft corners (roughly 4–5 px), fine rules, no glassmorphism.
-- Type: system sans serif, high contrast, uppercase tracked labels for process chrome.
+- Surfaces: 9–18 px radii, fine rules, restrained depth, and no glassmorphism.
+- Type: Inter/system sans serif, large editorial claim framing, high contrast, and uppercase tracked labels only for process chrome.
+- Hierarchy: the claim composer is the strongest visual element; evidence, resolver, and approval become progressively more compact and operational.
 - Motion: brief state transitions only; no decorative animation. Respect reduced-motion settings.
 
 ## Component system
 
 ### Top bar
 
+- **Context label:** `EVIDENCE OPERATIONS`, small and tracked above the wordmark.
 - **Wordmark:** `THE VERIFIER`, uppercase, tracked, left-aligned.
 - **Session state:** small green dot and plain-language session status.
 - **Export action:** secondary button. It must not imply a dossier has been saved; before approval, explain that export is unavailable.
 
-### Spoken brief panel
+### Claim composer / spoken brief
 
-- Process label: `1. SPOKEN BRIEF`.
-- Editable multiline brief field with a voice/input icon.
+- Hero statement: `Verify a public claim before it becomes permanent.`
+- Supporting copy explains the opposing research angles, deterministic resolver, and approval lock.
+- Four-step progress strip: Brief → Research → Resolve → Approve.
+- Process label: `1. SPOKEN BRIEF` beneath the progress strip.
+- Editable multiline brief field with clearly labeled voice and typed-input actions.
 - Primary compact action: `Verify brief`.
 - Supporting line confirms voice-or-text entry and identifies pinned-demo data where applicable.
 
@@ -61,7 +67,7 @@ The brief remains editable at all times. Starting a new verification clears any 
 
 ### Investigation timeline
 
-Two side-by-side research lanes make the adversarial architecture legible.
+Two balanced research lanes make the adversarial architecture legible. The old decorative time ruler is intentionally omitted; it consumed space without communicating reliable progress.
 
 | Lane | Accent | Job | Result label |
 |---|---|---|---|
@@ -188,4 +194,8 @@ The UI should support a three-minute demo in this order:
 | Date normalization and resolver policy | `src/lib/dateMetadata.js` |
 | Visual tokens, layout, and responsive styles | `src/styles.css` |
 
-The UI now consumes the server session workflow, renders returned research and resolver evidence, exposes recoverable errors, and binds save/reject actions to the server's one-time approval checkpoint. The browser Web Speech API captures an editable spoken brief, pauses for transcript confirmation, narrates the result and save question, and accepts an explicit spoken yes/no decision. Browsers without speech recognition retain the complete typed-input and button-approval path. JSON export remains disabled until the server confirms persistence, then retrieves the saved dossier from the session endpoint. TrueForge live mode uses the same UI contract; future streaming support can replace the current request/response transition with incremental direct-research events without changing the layout.
+The UI now consumes the server session workflow, renders returned research and resolver evidence, exposes recoverable errors, and binds save/reject actions to the server's one-time approval checkpoint. The browser Web Speech API captures an editable spoken brief, pauses for transcript confirmation, narrates the result and save question, and accepts an explicit spoken yes/no decision. Browsers without a working browser speech service receive an actionable Chrome/Safari or typed-input fallback; no external speech API is required. JSON export remains disabled until the server confirms persistence, then retrieves the saved dossier from the session endpoint. TrueForge live mode uses the same UI contract; future streaming support can replace the current request/response transition with incremental direct-research events without changing the layout.
+
+## Figma working file
+
+The design audit, captured before-state, and redesigned navigation foundation are available in [The Verifier — Product UI](https://www.figma.com/design/lPFjpIVftKQA4pHe9NOphW). The Figma Starter-plan MCP limit prevented completing every frame in that file, so the verified React implementation is the current visual source of truth.

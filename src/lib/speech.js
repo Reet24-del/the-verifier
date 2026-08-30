@@ -4,9 +4,22 @@ export function createBrowserVoice(browser = globalThis) {
   return {
     recognitionSupported: typeof Recognition === 'function',
 
-    listen() {
+    async listen() {
       if (typeof Recognition !== 'function') {
-        return Promise.reject(new Error('Speech recognition is unavailable. Type your response instead.'));
+        throw new Error('Speech recognition is unavailable. Type your response instead.');
+      }
+
+      const getUserMedia = browser.navigator?.mediaDevices?.getUserMedia;
+      if (typeof getUserMedia === 'function') {
+        try {
+          const stream = await getUserMedia.call(browser.navigator.mediaDevices, { audio: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (error) {
+          const blocked = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
+          throw new Error(blocked
+            ? 'Microphone permission is blocked. Allow microphone access for this site, then try again or type your brief.'
+            : 'The microphone could not be opened. Check your input device, then try again or type your brief.');
+        }
       }
 
       return new Promise((resolve, reject) => {
@@ -25,9 +38,15 @@ export function createBrowserVoice(browser = globalThis) {
         };
         recognition.onerror = (event) => {
           settled = true;
-          reject(new Error(event.error === 'not-allowed'
-            ? 'Microphone access was denied. Type your response instead.'
-            : 'I could not understand the audio. Please try again or type your response.'));
+          const messages = {
+            'not-allowed': 'Microphone permission is blocked. Allow microphone access for this site, then try again or type your brief.',
+            'service-not-allowed': 'Microphone permission is blocked. Allow microphone access for this site, then try again or type your brief.',
+            'audio-capture': 'No working microphone was detected. Check your input device, then try again or type your brief.',
+            network: 'Browser speech recognition is unavailable right now. Type your brief instead or try Chrome/Safari.',
+            aborted: 'Speech capture stopped. Try again or type your brief.',
+          };
+          reject(new Error(messages[event.error]
+            ?? 'I could not understand the audio. Please try again or type your response.'));
         };
         recognition.onend = () => {
           if (!settled) reject(new Error('No speech was detected. Please try again or type your response.'));

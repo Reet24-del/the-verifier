@@ -15,10 +15,6 @@ const sourceGroups = [
   { key: 'contradiction', label: 'Contradiction Hunter', description: 'Actively searches for conflicting public evidence.', tone: 'red' },
 ]
 
-function Icon({ children }) {
-  return <span aria-hidden="true" className="icon">{children}</span>
-}
-
 function sourceHost(url) {
   try {
     return new URL(url).hostname
@@ -31,12 +27,14 @@ function SourceCard({ source }) {
   const isSupport = source.stance === 'supports'
   return (
     <article className="source-card">
+      <div className="source-card-topline">
+        <p className={`source-state ${isSupport ? 'positive' : 'negative'}`}>
+          <span /> {isSupport ? 'Supports claim' : 'Contradicts claim'}
+        </p>
+        <p className="source-host">{sourceHost(source.url)}</p>
+      </div>
       <p className="source-title">{source.title}</p>
-      <p className="source-host">{sourceHost(source.url)}</p>
       <p className="source-claim">“{source.claim}”</p>
-      <p className={`source-state ${isSupport ? 'positive' : 'negative'}`}>
-        <span /> {isSupport ? 'Supports claim' : 'Contradicts claim'}
-      </p>
     </article>
   )
 }
@@ -225,50 +223,80 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
         ? { label: 'Awaiting your approval', className: 'draft', text: 'The server is blocked until you decide.' }
         : { label: 'Not saved', className: 'draft', text: 'No dossier has been persisted.' }
 
+  const activeStep = runState === 'ready' || runState === 'error'
+    ? 1
+    : runState === 'running'
+      ? 2
+      : resolver
+        ? 4
+        : 3
+  const workflowSteps = ['Brief', 'Research', 'Resolve', 'Approve']
+  const dossierBadge = runState === 'saved' ? 'Saved' : awaitingApproval ? 'Approval pending' : 'Draft'
+
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand">THE VERIFIER</div>
-        <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} · approval required for save</div>
+        <div className="brand-block">
+          <span className="brand-kicker">Evidence operations</span>
+          <div className="brand">THE VERIFIER</div>
+        </div>
+        <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} <span>· Save locked until approval</span></div>
         <button className="button secondary" disabled={runState !== 'saved' || exporting} onClick={exportDossier}>{exporting ? 'Preparing…' : 'Export dossier'}</button>
       </header>
 
       <div className="workspace">
         <section className="primary-column">
-          <section className="panel brief-panel">
-            <div className="section-heading"><span>1.</span> Spoken brief <em>{runState === 'ready' ? '(ready)' : '(captured)'}</em></div>
+          <section className="hero-panel">
+            <p className="hero-kicker">Human-controlled verification</p>
+            <h1>Verify a public claim before it becomes permanent.</h1>
+            <p className="hero-copy">Two opposing research angles surface the evidence. Deterministic date metadata breaks the tie. Nothing is saved until you approve it.</p>
+            <div className="workflow-steps" aria-label="Verification progress">
+              {workflowSteps.map((step, index) => {
+                const number = index + 1
+                const state = number < activeStep ? 'complete' : number === activeStep ? 'active' : 'upcoming'
+                return <div className={`workflow-step ${state}`} key={step}><span>{number}</span><strong>{step}</strong></div>
+              })}
+            </div>
+            <div className="section-heading"><span>1</span><div>Spoken brief<em>{runState === 'ready' ? 'Ready for a claim' : 'Brief captured'}</em></div></div>
             <div className="brief-input-wrap">
-              <Icon>◉</Icon>
               <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => { setBrief(event.target.value); setSpokenBrief('') }} />
               <div className="brief-actions">
                 {voice.recognitionSupported && <button className="button secondary compact" disabled={isBusy} onClick={captureBrief}>{listeningFor === 'brief' ? 'Listening…' : 'Speak brief'}</button>}
-                <button className="button compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
+                <button className="button primary compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
               </div>
             </div>
-            <p className="input-meta">{voice.recognitionSupported ? 'Speak your brief, confirm the transcript, or type instead.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} · Fixture mode uses pinned public Starbucks sources</p>
+            <p className="input-meta">{voice.recognitionSupported ? 'Speak, confirm the transcript, or type your claim.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} <span>Demo uses pinned public Starbucks sources.</span></p>
           </section>
 
           <section className="panel timeline-panel">
-            <div className="section-heading"><span>2.</span> Investigation timeline <em>two adversarial agents</em></div>
-            <div className="timeline-scale"><span>0s</span><span>15s</span><span>30s</span><span>45s</span><span>60s</span></div>
+            <div className="panel-heading-row">
+              <div className="section-heading"><span>2</span><div>Investigation timeline<em>Two adversarial research angles</em></div></div>
+              <div className={`stage-pill ${runState === 'running' ? 'active' : ''}`}>{runState === 'running' ? 'Researching' : result ? 'Complete' : 'Waiting'}</div>
+            </div>
+            <p className="section-intro">Evidence is kept in opposing lanes so a confident answer can never hide a public contradiction.</p>
+            <div className="research-grid">
             {sourceGroups.map((group) => {
               const sources = findingsByAngle[group.key] ?? []
               return (
-                <div className="agent-row" key={group.key}>
-                  <div className={`agent-label ${group.tone}`}><strong>{group.label}</strong><small>{group.description}</small></div>
+                <div className={`agent-lane ${group.tone}`} key={group.key}>
+                  <div className="agent-label"><span>{group.key === 'current' ? 'Support angle' : 'Challenge angle'}</span><strong>{group.label}</strong><small>{group.description}</small></div>
                   <div className="source-stream">
                     {sources.length
                       ? sources.map((source) => <SourceCard source={source} key={source.url} />)
-                      : <div className={`source-empty ${runState === 'running' ? 'active' : ''}`}>{runState === 'running' ? 'Researching public sources…' : 'Evidence will appear after verification.'}</div>}
+                      : <div className={`source-empty ${runState === 'running' ? 'active' : ''}`}><strong>{runState === 'running' ? 'Searching public sources' : 'No evidence collected yet'}</strong><span>{runState === 'running' ? 'Checking source claims and machine-readable dates…' : 'This lane activates when you verify the brief.'}</span></div>}
                   </div>
                 </div>
               )
             })}
-            {hasConflict && <div className="conflict"><Icon>!</Icon><div><strong>Conflict detected</strong><p>Public sources disagree on the claim. The resolver compared their machine-readable date evidence.</p></div><span>Escalated</span></div>}
+            </div>
+            {hasConflict && <div className="conflict"><span className="conflict-label">Conflict</span><div><strong>Public sources disagree on the claim.</strong><p>The date-metadata resolver was invoked instead of silently choosing a source.</p></div><span>Escalated to resolver</span></div>}
           </section>
 
           <section className="panel resolver-panel">
-            <div className="section-heading"><span>3.</span> Sandbox — date-metadata resolver <em>deterministic code check</em></div>
+            <div className="panel-heading-row">
+              <div className="section-heading"><span>3</span><div>Date-metadata resolver<em>Deterministic evidence check</em></div></div>
+              <div className={`stage-pill ${resolver?.status ?? ''}`}>{resolver ? resolver.status : 'Waiting'}</div>
+            </div>
             <div className="table-wrap">
               <table>
                 <thead><tr><th>Source</th><th>Metadata field</th><th>Raw value</th><th>Normalized (UTC)</th></tr></thead>
@@ -283,7 +311,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
           </section>
 
           <section className="approval-panel">
-            <div><div className="section-heading"><span>4.</span> Human approval</div><h2>Save this verified brief?</h2><p>{approvalPrompt || 'Saving is an irreversible session action. The server is blocked until you decide.'}</p></div>
+            <div className="approval-copy"><div className="section-heading"><span>4</span><div>Human approval<em>Server-enforced gate</em></div></div><h2>Save this verified brief?</h2><p>{approvalPrompt || 'Saving is blocked at the server until you explicitly decide.'}</p></div>
             <div className="approval-actions">
               {voice.recognitionSupported && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
               <button className="button primary" disabled={!awaitingApproval || isBusy} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
@@ -294,7 +322,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
         </section>
 
         <aside className="dossier panel">
-          <div className="section-heading">Dossier</div>
+          <div className="dossier-header"><div><p>Decision dossier</p><h2>Evidence at a glance</h2></div><span className={dossierStatus.className}>{dossierBadge}</span></div>
           <section className="conclusion"><p>Overall conclusion</p><h1>{conclusion.title}</h1><p>{conclusion.text}</p></section>
           <section className="dossier-section">
             <p className="dossier-label">Evidence summary</p>
@@ -302,7 +330,8 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
               ? allSources.map((source) => <div className="evidence-item" key={source.url}><span className={source.stance === 'supports' ? 'support-dot' : 'conflict-dot'} /><div><strong>{source.title}</strong><small>{sourceHost(source.url)}</small></div><em>{source.stance === 'supports' ? 'Supports' : 'Contradicts'}</em></div>)
               : <p className="empty-summary">No evidence collected yet.</p>}
           </section>
-          <section className="dossier-section status-box"><p className="dossier-label">Dossier status</p><strong className={dossierStatus.className}>{dossierStatus.label}</strong><p>{dossierStatus.text}</p></section>
+          <section className="dossier-section status-box"><p className="dossier-label">Persistence checkpoint</p><strong className={dossierStatus.className}>{dossierStatus.label}</strong><p>{dossierStatus.text}</p></section>
+          <p className="privacy-note">The evidence stays inside this session until the approval checkpoint succeeds.</p>
         </aside>
       </div>
     </main>

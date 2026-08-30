@@ -50,6 +50,45 @@ test('browser voice captures the final transcript and configures one-shot Englis
   assert.equal(recognition.lang, 'en-US');
 });
 
+test('browser voice requests microphone access before starting recognition', async () => {
+  let started = false;
+  class Recognition {
+    start() { started = true; }
+    stop() {}
+  }
+  const voice = createBrowserVoice({
+    SpeechRecognition: Recognition,
+    navigator: {
+      mediaDevices: {
+        getUserMedia: async () => {
+          const error = new Error('Permission denied');
+          error.name = 'NotAllowedError';
+          throw error;
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    voice.listen(),
+    /Microphone permission is blocked\. Allow microphone access for this site, then try again or type your brief\./,
+  );
+  assert.equal(started, false);
+});
+
+test('browser voice reports when the browser speech service is unavailable', async () => {
+  class Recognition {
+    start() { queueMicrotask(() => this.onerror({ error: 'network' })); }
+    stop() {}
+  }
+  const voice = createBrowserVoice({ SpeechRecognition: Recognition });
+
+  await assert.rejects(
+    voice.listen(),
+    /Browser speech recognition is unavailable right now\. Type your brief instead or try Chrome\/Safari\./,
+  );
+});
+
 test('browser voice resolves narration only after speech synthesis ends', async () => {
   let utterance;
   class SpeechUtterance {
