@@ -16,9 +16,11 @@ export function createBrowserVoice(browser = globalThis) {
           stream.getTracks().forEach((track) => track.stop());
         } catch (error) {
           const blocked = error?.name === 'NotAllowedError' || error?.name === 'SecurityError';
-          throw new Error(blocked
+          const voiceError = new Error(blocked
             ? 'Microphone permission is blocked. Allow microphone access for this site, then try again or type your brief.'
             : 'The microphone could not be opened. Check your input device, then try again or type your brief.');
+          voiceError.code = blocked ? 'speech-permission-blocked' : 'speech-audio-unavailable';
+          throw voiceError;
         }
       }
 
@@ -47,7 +49,14 @@ export function createBrowserVoice(browser = globalThis) {
           };
           const error = new Error(messages[event.error]
             ?? 'I could not understand the audio. Please try again or type your response.');
-          if (event.error === 'network') error.code = 'speech-service-unavailable';
+          const errorCodes = {
+            'not-allowed': 'speech-permission-blocked',
+            'service-not-allowed': 'speech-permission-blocked',
+            'audio-capture': 'speech-audio-unavailable',
+            network: 'speech-service-unavailable',
+            aborted: 'speech-aborted',
+          };
+          error.code = errorCodes[event.error] ?? 'speech-not-understood';
           reject(error);
         };
         recognition.onend = () => {
@@ -87,6 +96,14 @@ export function createBrowserVoice(browser = globalThis) {
       });
     },
   };
+}
+
+export function isFatalSpeechError(error) {
+  return [
+    'speech-permission-blocked',
+    'speech-audio-unavailable',
+    'speech-service-unavailable',
+  ].includes(error?.code);
 }
 
 export function approvalDecisionFromTranscript(transcript) {
