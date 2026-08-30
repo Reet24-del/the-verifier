@@ -227,9 +227,14 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Add saved-dossier export after approval
 - [x] Complete speech input, spoken result, and voice approval with text fallbacks
 - [ ] Complete live credentialed TrueForge rehearsal
-- [ ] Attach Qodo review evidence and final demo video
+- [x] Attach Qodo review evidence in [PR #1](https://github.com/Reet24-del/the-verifier/pull/1)
+- [ ] Record the final demo video
 
 The checklist is intentionally honest: incomplete integrations are not presented as finished hackathon evidence.
+
+### Qodo review evidence
+
+[Qodo reviewed PR #1](https://github.com/Reet24-del/the-verifier/pull/1) and reported three approval-safety findings: negated speech could be misread as approval, narration could overlap recognition, and voice/button decisions could race. All three findings were fixed with regression tests and are marked resolved in the review.
 
 ## Contributing
 
