@@ -6,6 +6,9 @@ import { approvalDecisionFromTranscript, buildApprovalPrompt, createBrowserVoice
 test('approval transcript accepts clear decisions and rejects ambiguous speech', () => {
   assert.equal(approvalDecisionFromTranscript('Yes, go ahead'), true);
   assert.equal(approvalDecisionFromTranscript("No, don't save it"), false);
+  assert.equal(approvalDecisionFromTranscript('This is not approved'), false);
+  assert.equal(approvalDecisionFromTranscript('I can\'t approve this'), false);
+  assert.equal(approvalDecisionFromTranscript('Never go ahead'), false);
   assert.equal(approvalDecisionFromTranscript('Tell me more about the evidence'), null);
 });
 
@@ -45,4 +48,24 @@ test('browser voice captures the final transcript and configures one-shot Englis
   assert.equal(recognition.continuous, false);
   assert.equal(recognition.interimResults, false);
   assert.equal(recognition.lang, 'en-US');
+});
+
+test('browser voice resolves narration only after speech synthesis ends', async () => {
+  let utterance;
+  class SpeechUtterance {
+    constructor(message) { this.message = message; utterance = this; }
+  }
+  const voice = createBrowserVoice({
+    SpeechSynthesisUtterance: SpeechUtterance,
+    speechSynthesis: { cancel() {}, speak() {} },
+  });
+
+  let finished = false;
+  const speaking = voice.speak('Approval prompt').then(() => { finished = true; });
+  await Promise.resolve();
+  assert.equal(finished, false);
+
+  utterance.onend();
+  await speaking;
+  assert.equal(finished, true);
 });
