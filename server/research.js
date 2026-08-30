@@ -143,7 +143,7 @@ function researchPrompt({ angle, brief }) {
 
   return `${role}: ${mission}\n\n`
     + `User brief: ${brief}\n\n`
-    + 'Before answering, delegate source discovery to a subagent and use available public-web tools. '
+    + 'Use the available public-web tools directly to search and fetch real sources. '
     + 'Return JSON only, with this shape: '
     + '{"sources":[{"title":"...","url":"https://...","claim":"verbatim or concise sourced claim","stance":"supports|contradicts","html":"raw HTML metadata snippet containing JSON-LD/Open Graph/meta date fields when available","headers":{"last-modified":"..."}}]}. '
     + 'Do not invent a source, claim, URL, date, HTML metadata, or header. Omit unavailable date inputs; the server will mark weak evidence unresolved.';

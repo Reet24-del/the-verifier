@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { getDossier, runVerification, submitApproval } from './lib/verifierApi.js'
+import { approvalDecisionFromTranscript, buildApprovalPrompt, createBrowserVoice } from './lib/speech.js'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 const defaultApi = {
@@ -62,13 +63,18 @@ function downloadJson(filename, data) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
-export default function App({ api = defaultApi, saveJson = downloadJson }) {
+export default function App({ api = defaultApi, saveJson = downloadJson, voice = createBrowserVoice() }) {
   const [brief, setBrief] = useState(defaultBrief)
+  const [spokenBrief, setSpokenBrief] = useState('')
   const [runState, setRunState] = useState('ready')
   const [workflow, setWorkflow] = useState(null)
   const [session, setSession] = useState(null)
   const [notice, setNotice] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [listeningFor, setListeningFor] = useState(null)
+  const [approvalPrompt, setApprovalPrompt] = useState('')
+  const [narrating, setNarrating] = useState(false)
+  const approvalActionRef = useRef(false)
 
   const result = workflow?.result ?? null
   const resolver = result?.resolution ?? null
@@ -80,8 +86,23 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
   const hasConflict = allSources.some((source) => source.stance === 'supports')
     && allSources.some((source) => source.stance === 'contradicts')
   const conclusion = conclusionFor(runState, result)
-  const isBusy = runState === 'running' || runState === 'saving'
+  const isBusy = runState === 'running' || runState === 'saving' || runState === 'rejecting' || listeningFor !== null || narrating
   const awaitingApproval = runState === 'awaiting_approval'
+
+  const captureBrief = async () => {
+    setListeningFor('brief')
+    setNotice('Listening for your name and claim…')
+    try {
+      const transcript = await voice.listen()
+      setBrief(transcript)
+      setSpokenBrief(transcript)
+      setNotice(`I heard: “${transcript}” Confirm it below or edit the text first.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Speech capture failed. Type your brief instead.')
+    } finally {
+      setListeningFor(null)
+    }
+  }
 
   const runInvestigation = async () => {
     if (!brief.trim()) {
@@ -93,21 +114,37 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
     setRunState('running')
     setWorkflow(null)
     setSession(null)
+    setApprovalPrompt('')
+    approvalActionRef.current = false
     setNotice('Both research agents are working in parallel…')
     try {
       const completed = await api.runVerification({ brief })
+      const prompt = buildApprovalPrompt(completed.result)
       setWorkflow(completed)
       setSession(completed.session)
       setRunState('awaiting_approval')
+      setSpokenBrief('')
+      setApprovalPrompt(prompt)
       setNotice('Conflict checked. The server is awaiting your approval before saving anything.')
+      setNarrating(true)
+      await voice.speak(prompt)
+      setNarrating(false)
     } catch (error) {
+      setNarrating(false)
       setRunState('error')
       setNotice(error instanceof Error ? error.message : 'Workflow execution failed')
     }
   }
 
-  const decide = async (approved) => {
-    if (!session?.id || !workflow?.approvalToken || !awaitingApproval) return
+  const decide = async (approved, lockHeld = false) => {
+    if (!lockHeld) {
+      if (approvalActionRef.current) return
+      approvalActionRef.current = true
+    }
+    if (!session?.id || !workflow?.approvalToken || !awaitingApproval) {
+      if (!lockHeld) approvalActionRef.current = false
+      return
+    }
 
     setRunState(approved ? 'saving' : 'rejecting')
     setNotice(approved ? 'Saving the approved dossier…' : 'Recording your decision without saving…')
@@ -126,9 +163,33 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
       setNotice(approved
         ? 'The server persisted the dossier after your approval.'
         : 'Approval rejected. The server saved no dossier.')
+      void voice.speak(approved ? 'Saved.' : 'Not saved. Tell me what you would like to adjust.')
     } catch (error) {
+      approvalActionRef.current = false
       setRunState('awaiting_approval')
       setNotice(error instanceof Error ? error.message : 'The approval request failed')
+    }
+  }
+
+  const captureApproval = async () => {
+    if (!awaitingApproval || approvalActionRef.current || narrating) return
+    approvalActionRef.current = true
+    setListeningFor('approval')
+    setNotice('Listening for yes or no…')
+    try {
+      const transcript = await voice.listen()
+      const approved = approvalDecisionFromTranscript(transcript)
+      if (approved === null) {
+        approvalActionRef.current = false
+        setNotice(`I heard “${transcript}”, but need a clear yes or no. You can also use the buttons.`)
+        return
+      }
+      await decide(approved, true)
+    } catch (error) {
+      approvalActionRef.current = false
+      setNotice(error instanceof Error ? error.message : 'Voice approval failed. Use the buttons instead.')
+    } finally {
+      setListeningFor(null)
     }
   }
 
@@ -150,6 +211,8 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
 
   const verifyButtonLabel = runState === 'running'
     ? 'Investigating…'
+    : spokenBrief
+      ? 'Confirm & verify'
     : runState === 'error'
       ? 'Try again'
       : 'Verify brief'
@@ -176,10 +239,13 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
             <div className="section-heading"><span>1.</span> Spoken brief <em>{runState === 'ready' ? '(ready)' : '(captured)'}</em></div>
             <div className="brief-input-wrap">
               <Icon>◉</Icon>
-              <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => setBrief(event.target.value)} />
-              <button className="button compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
+              <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => { setBrief(event.target.value); setSpokenBrief('') }} />
+              <div className="brief-actions">
+                {voice.recognitionSupported && <button className="button secondary compact" disabled={isBusy} onClick={captureBrief}>{listeningFor === 'brief' ? 'Listening…' : 'Speak brief'}</button>}
+                <button className="button compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
+              </div>
             </div>
-            <p className="input-meta">Voice or text input · Fixture mode uses pinned public Starbucks sources</p>
+            <p className="input-meta">{voice.recognitionSupported ? 'Speak your brief, confirm the transcript, or type instead.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} · Fixture mode uses pinned public Starbucks sources</p>
           </section>
 
           <section className="panel timeline-panel">
@@ -217,10 +283,11 @@ export default function App({ api = defaultApi, saveJson = downloadJson }) {
           </section>
 
           <section className="approval-panel">
-            <div><div className="section-heading"><span>4.</span> Human approval</div><h2>Save this verified brief?</h2><p>Saving is an irreversible session action. The server is blocked until you decide.</p></div>
+            <div><div className="section-heading"><span>4.</span> Human approval</div><h2>Save this verified brief?</h2><p>{approvalPrompt || 'Saving is an irreversible session action. The server is blocked until you decide.'}</p></div>
             <div className="approval-actions">
-              <button className="button primary" disabled={!awaitingApproval} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
-              <button className="button secondary" disabled={!awaitingApproval} onClick={() => decide(false)}>Keep investigating</button>
+              {voice.recognitionSupported && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
+              <button className="button primary" disabled={!awaitingApproval || isBusy} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
+              <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={() => decide(false)}>Keep investigating</button>
             </div>
           </section>
           {notice && <p className={`notice ${runState === 'error' ? 'error' : ''}`} role={runState === 'error' ? 'alert' : 'status'}>{notice}</p>}

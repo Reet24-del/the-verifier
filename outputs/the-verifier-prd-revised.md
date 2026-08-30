@@ -39,7 +39,7 @@ The user speaks this once. The agent investigates, finds and resolves a contradi
 **Acceptance criteria:**
 
 - Agent accepts a spoken name + claim and confirms it understood correctly before proceeding
-- Two independent subagents research the claim from different angles (confirming vs. contradiction-seeking)
+- Two independent research passes investigate the claim from different angles (confirming vs. contradiction-seeking)
 - If sources disagree, the disagreement is surfaced explicitly — never silently resolved by picking one source
 - A sandboxed script extracts and compares each source's publication and modification metadata; the result is displayed as evidence, not inferred by the model
 - If no trustworthy metadata is available, the agent reports that the conflict is unresolved rather than claiming a winner
@@ -50,19 +50,19 @@ The user speaks this once. The agent investigates, finds and resolves a contradi
 
 ## 5. System Architecture
 
-### 5.1 Agents
+### 5.1 Research Agent
 
 | Agent | Role | Tools |
 |---|---|---|
-| **Orchestrator** | Parses voice input, spawns subagents, detects contradiction, triggers sandbox resolver, owns the approval gate, narrates via TTS | STT/TTS, subagent delegation |
-| **Subagent A — Current Claim Finder** | Finds the most recent public source stating the claim as true | MCP web search, MCP fetch |
-| **Subagent B — Contradiction Hunter** | Actively searches for conflicting information (older title, past claim, lapsed status) | MCP web search, MCP fetch |
+| **Orchestrator / Research Agent** | Parses voice input, runs both evidence angles, detects contradiction, triggers the sandbox resolver, owns the approval gate, and narrates via TTS | STT/TTS, MCP web search, MCP fetch |
+| **Current Claim Finder pass** | Finds the most recent public source stating the claim as true | Direct MCP web search and fetch |
+| **Contradiction Hunter pass** | Actively searches for conflicting information (older title, past claim, lapsed status) | Direct MCP web search and fetch |
 
-Subagents run in parallel and return structured output: `{claim, source_url, published_date, modified_date, date_evidence}`. `date_evidence` records the metadata field or page signal found, if any.
+The two direct research passes run independently and return structured output: `{claim, source_url, published_date, modified_date, date_evidence}`. `date_evidence` records the metadata field or page signal found, if any.
 
 ### 5.2 Contradiction Detection
 
-Orchestrator compares Subagent A and B outputs. If claims conflict on the same underlying fact → escalate to the sandbox resolver. If they agree → skip the resolver and proceed directly to the approval gate.
+The orchestrator compares the Current Claim Finder and Contradiction Hunter outputs. If claims conflict on the same underlying fact → escalate to the sandbox resolver. If they agree → skip the resolver and proceed directly to the approval gate.
 
 ### 5.3 Sandbox Resolver — Source-Date Metadata Extraction
 
@@ -97,7 +97,7 @@ This resolver is deliberately the only contradiction-resolution mechanism. It is
 ## 6. Demo Script (target: under 3 minutes)
 
 1. **User:** "I'm meeting [name] in an hour — they're claiming [claim]. Check that for me."
-2. **Agent:** "Checking two angles on this now." *(subagents visibly running)*
+2. **Agent:** "Checking two angles on this now." *(both direct research passes visibly running)*
 3. **Agent:** "I found a conflict. [Source A] says X; [Source B] says Y. I’m checking each source’s machine-readable publication history." *(sandbox step visibly running)*
 4. **Agent:** "The sandbox found [Source A]'s `dateModified` as [ISO date] and [Source B]'s `datePublished` as [ISO date]. [Resolution], based on that metadata. I'd like to save this as your brief — can I go ahead?"
 5. **User:** "Yes."
@@ -112,9 +112,9 @@ For an unresolved case, step 4 changes to: "The sources conflict, but their date
 | Criterion | How this project addresses it |
 |---|---|
 | Potential impact | Real pre-meeting/due-diligence use case, not hackathon-only |
-| Creativity/originality | Voice-first interrogation of an agent's findings; adversarial subagent pairing; evidence-first contradiction resolution |
-| Technical excellence | Multi-agent orchestration + deterministic, sandboxed metadata extraction with an explicit unresolved state |
-| Use of sponsor tools | MCP tools central to both subagents; TrueForge harness owns delegation, sandbox execution, and approval gate; Qodo reviews all PRs across the build week |
+| Creativity/originality | Voice-first interrogation of an agent's findings; adversarial two-angle research; evidence-first contradiction resolution |
+| Technical excellence | Independent two-angle research + deterministic, sandboxed metadata extraction with an explicit unresolved state |
+| Use of sponsor tools | MCP tools are central to both research passes; the TrueForge harness owns research execution, sandbox resolution, and the approval gate; Qodo review evidence is included only when actually completed |
 | Control and safety | Genuine execution block before any save/send action — demoed on camera, not just claimed |
 | Presentation | Three-act demo structure (setup → tension/contradiction → metadata resolution + gate) |
 
@@ -125,8 +125,8 @@ For an unresolved case, step 4 changes to: "The sources conflict, but their date
 | Day | Focus |
 |---|---|
 | 1 | TrueForge harness running, repo public, Qodo installed, voice I/O skeleton (reuse ai-voice-assistant pipeline) |
-| 2 | MCP research tools wired to Subagent A; build and validate the metadata-extraction sandbox script against two pinned public pages |
-| 3 | Subagent B + contradiction detection logic; normalize date evidence and implement the unresolved-state policy |
+| 2 | MCP research tools wired to the Current Claim Finder pass; build and validate the metadata-extraction sandbox script against two pinned public pages |
+| 3 | Contradiction Hunter pass + contradiction detection logic; normalize date evidence and implement the unresolved-state policy |
 | 4 | Approval gate as a real execution block; first end-to-end run on the pinned test case |
 | 5 | Visible agent-state UI (thinking/waiting/done); show extracted metadata fields and timestamps; ensure PR trail is real across the week, not backfilled |
 | 6 | Rehearse and record demo (contradiction, sandbox metadata output, and gate must be on camera); write README + blog post; submit |

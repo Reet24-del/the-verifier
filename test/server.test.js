@@ -95,6 +95,21 @@ test('POST workflow runs the injected workflow and issues an approval token', as
   assert.match(body.approval.token, /^[0-9a-f-]{36}$/i);
 });
 
+test('completed research remains blocked and creates no dossier before explicit approval', async (t) => {
+  const dossierDirectory = await makeDossierDirectory(t);
+  const app = await startServer({ dossierDirectory });
+  t.after(app.close);
+  const session = await createSession(app);
+
+  const workflowResponse = await app.request(`/api/sessions/${session.id}/workflow`, { method: 'POST' });
+  const dossierResponse = await app.request(`/api/sessions/${session.id}/dossier`);
+
+  assert.equal(workflowResponse.status, 200);
+  assert.equal((await workflowResponse.json()).session.status, 'awaiting_approval');
+  assert.equal(dossierResponse.status, 404);
+  assert.deepEqual(await readdir(dossierDirectory), []);
+});
+
 test('POST approval rejects a session whose workflow has not completed', async (t) => {
   const app = await startServer();
   t.after(app.close);

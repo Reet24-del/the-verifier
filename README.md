@@ -17,6 +17,8 @@ The Verifier takes one narrow brief, sends two research lanes in opposite direct
 - **Deterministic resolution:** raw JSON-LD, Open Graph, HTML metadata, and HTTP headers are normalized and compared by code.
 - **Fail-closed evidence policy:** weak, invalid, tied, or single-source dates return `unresolved`.
 - **Real approval boundary:** the server issues a one-time approval token and refuses to persist a dossier without it.
+- **Complete voice loop:** browser speech-to-text captures the brief and final yes/no decision, while text entry and approval buttons remain available as fallbacks.
+- **Spoken evidence:** text-to-speech reads the result, metadata resolution, and approval question before anything can be saved.
 - **No-secret demo:** fixture mode works locally without model or provider credentials.
 
 ## Demo case
@@ -68,7 +70,7 @@ A result requires two independent sources with strong date evidence and a unique
 | Node HTTP server | Session state machine, workflow execution, approval-token validation, and dossier persistence |
 | Research adapters | Credential-free fixture adapter or TrueForge session/turn adapter |
 | Metadata resolver | Pure shared module for deterministic extraction, normalization, and recency policy |
-| TrueForge | Persistent live sessions, delegated research prompts, tool use, and structured turn results |
+| TrueForge | Persistent live sessions, direct two-angle research prompts, tool use, and structured turn results |
 
 No TrueForge token or model credential is exposed to browser code.
 
@@ -82,11 +84,13 @@ server/
 src/
   App.jsx                Verification console UI
   lib/dateMetadata.js    Shared deterministic resolver
+  lib/speech.js          Browser speech capture, narration, and decision parsing
   lib/verifierApi.js     Browser client for session and approval APIs
 test/
   dateMetadata.test.js   Resolver policy and edge cases
   research.test.js       Parallel workflow and TrueForge HTTP contract
   server.test.js         Session, approval, and persistence behavior
+  speech.test.js         Voice input and explicit-decision behavior
   verifierApi.test.js    Browser-to-server API contract
   ui/App.test.jsx        React workflow and failure states
 design.md                UI behavior and visual specification
@@ -182,8 +186,9 @@ The test suite covers:
 - concurrent opposing research lanes;
 - TrueForge's real session/turn HTTP envelopes through a local fake server;
 - failed, cancelled, malformed, and successful live turns;
-- invalid approval tokens, rejection, persistence, and post-restart retrieval.
+- invalid approval tokens, pre-approval blocking, rejection, persistence, and post-restart retrieval;
 - browser session/workflow/dossier requests and server error propagation;
+- speech capture, explicit yes/no parsing, result narration, and typed fallbacks;
 - React evidence, approval, saved, export-gating, and recoverable error states.
 
 Some restricted execution environments prohibit binding localhost ports. In that environment, socket-based integration tests report `EPERM`; pure resolver tests and the production build remain runnable.
@@ -203,13 +208,13 @@ This project verifies public-source recency signals; it is not a substitute for 
 
 ## Three-minute demo flow
 
-1. Enter the claim to verify.
+1. Speak the claim, confirm the transcript, or type it.
 2. Start the two opposing research lanes.
 3. Surface the source conflict.
 4. Inspect raw and normalized date metadata.
-5. Explain the resolved or unresolved result.
+5. Hear the resolved or unresolved result and approval question.
 6. Pause at the server-backed approval checkpoint.
-7. Approve and show the saved dossier state.
+7. Approve by voice or button and show the saved dossier state.
 
 ## Project status
 
@@ -220,10 +225,16 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Official TrueForge HTTP-envelope contract tests
 - [x] Connect the React UI to the session API
 - [x] Add saved-dossier export after approval
+- [x] Complete speech input, spoken result, and voice approval with text fallbacks
 - [ ] Complete live credentialed TrueForge rehearsal
-- [ ] Attach Qodo review evidence and final demo video
+- [x] Attach Qodo review evidence in [PR #1](https://github.com/Reet24-del/the-verifier/pull/1)
+- [ ] Record the final demo video
 
 The checklist is intentionally honest: incomplete integrations are not presented as finished hackathon evidence.
+
+### Qodo review evidence
+
+[Qodo reviewed PR #1](https://github.com/Reet24-del/the-verifier/pull/1) and reported three approval-safety findings: negated speech could be misread as approval, narration could overlap recognition, and voice/button decisions could race. All three findings were fixed with regression tests and are marked resolved in the review.
 
 ## Contributing
 
