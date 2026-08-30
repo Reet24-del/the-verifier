@@ -468,7 +468,7 @@ export default function App({
           <p>Four visible stages turn an uncertain claim into a decision you can defend.</p>
         </div>
         <ol className="process-list">
-          <li><span>01</span><div><strong>Brief the verifier</strong><p>Speak or type the claim in plain language, then confirm the transcript before research begins.</p></div></li>
+          <li><span>01</span><div><strong>Brief the verifier</strong><p>Type the claim, or start voice mode once and continue the conversation hands-free.</p></div></li>
           <li><span>02</span><div><strong>Investigate opposing angles</strong><p>One lane finds current support while another actively searches for public contradictions.</p></div></li>
           <li><span>03</span><div><strong>Resolve with date metadata</strong><p>Structured publication dates are normalized in UTC so newer evidence is identified deterministically.</p></div></li>
           <li><span>04</span><div><strong>Approve before saving</strong><p>Review the result, answer by voice or button, and export only after server-confirmed approval.</p></div></li>
@@ -498,7 +498,7 @@ export default function App({
         </div>
         <div className="product-bar">
           <div className="brand-block"><span className="brand-kicker">Evidence operations</span><div className="brand">THE VERIFIER</div></div>
-          <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} <span>· Save locked until approval</span></div>
+          <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} <span>· {runState === 'saved' ? 'Persistence confirmed' : 'Save locked until approval'}</span></div>
           <button className="button secondary" disabled={runState !== 'saved' || exporting} onClick={exportDossier}>{exporting ? 'Preparing…' : 'Export dossier'}</button>
         </div>
 

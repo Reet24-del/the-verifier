@@ -17,7 +17,8 @@ The Verifier takes one narrow brief, sends two research lanes in opposite direct
 - **Deterministic resolution:** raw JSON-LD, Open Graph, HTML metadata, and HTTP headers are normalized and compared by code.
 - **Fail-closed evidence policy:** weak, invalid, tied, or single-source dates return `unresolved`.
 - **Real approval boundary:** the server issues a one-time approval token and refuses to persist a dossier without it.
-- **Complete voice loop:** browser speech-to-text captures the brief and final yes/no decision, while text entry and approval buttons remain available as fallbacks.
+- **Evidence-grounded conversation:** follow-up questions retain the active claim, sources, date metadata, and earlier turns without rerunning research.
+- **Continuous voice loop:** one click starts listen → respond → listen behavior until the user stops it; typed conversation and approval buttons remain available as fallbacks.
 - **Spoken evidence:** text-to-speech reads the result, metadata resolution, and approval question before anything can be saved.
 - **No-secret demo:** fixture mode works locally without model or provider credentials.
 
@@ -36,9 +37,10 @@ Fixture dates are controlled raw metadata inputs for a repeatable demo. Live mod
 
 ```mermaid
 flowchart LR
-    A[User brief] --> B[Server session]
-    B --> C[Current Claim Finder]
-    B --> D[Contradiction Hunter]
+    A[User brief] --> B[Ephemeral conversation]
+    B --> M[Verification session]
+    M --> C[Current Claim Finder]
+    M --> D[Contradiction Hunter]
     C --> E[Source sets]
     D --> E
     E --> F[Deterministic date resolver]
@@ -47,6 +49,8 @@ flowchart LR
     G -->|No| I[Unresolved / human review]
     H --> J[Await approval]
     I --> J
+    J -->|Ask follow-up| B
+    B -->|Explicit research again| M
     J -->|Approve + valid token| K[Persist dossier]
     J -->|Reject| L[Save nothing]
 ```
@@ -67,8 +71,8 @@ A result requires two independent sources with strong date evidence and a unique
 
 | Layer | Responsibility |
 |---|---|
-| React + Vite UI | Brief entry, opposing evidence lanes, resolver table, approval state, dossier summary, and approved JSON export |
-| Node HTTP server | Session state machine, workflow execution, approval-token validation, and dossier persistence |
+| React + Vite UI | Persistent text/voice conversation, opposing evidence lanes, resolver table, approval state, and approved JSON export |
+| Node HTTP server | Ephemeral conversation memory, grounded replies, session state, approval-token validation, and dossier persistence |
 | Research adapters | Credential-free fixture adapter or TrueForge session/turn adapter |
 | Metadata resolver | Pure shared module for deterministic extraction, normalization, and recency policy |
 | TrueForge | Persistent live sessions, direct two-angle research prompts, tool use, and structured turn results |
@@ -79,11 +83,15 @@ No TrueForge token or model credential is exposed to browser code.
 
 ```text
 server/
-  app.js                 Session API and approval-gated persistence
+  app.js                 Conversation/session APIs and approval-gated persistence
+  conversationStore.js   Bounded ephemeral transcript memory
+  conversationResponder.js Evidence-grounded fixture/live replies
   index.js               Runnable server entrypoint
   research.js            Fixture and TrueForge research adapters
 src/
-  App.jsx                Verification console UI
+  App.jsx                Conversational verification workspace
+  components/            Conversation thread and composer
+  hooks/                 Continuous voice loop
   lib/dateMetadata.js    Shared deterministic resolver
   lib/speech.js          Browser speech capture, narration, and decision parsing
   lib/verifierApi.js     Browser client for session and approval APIs
@@ -167,6 +175,10 @@ If live configuration is absent, the server automatically uses fixture mode.
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/health` | Service readiness |
+| `POST` | `/api/conversations` | Create a conversation and run its first investigation |
+| `GET` | `/api/conversations/:id` | Restore public transcript and active evidence; never returns an approval token |
+| `POST` | `/api/conversations/:id/messages` | Ask a grounded follow-up without rerunning research |
+| `POST` | `/api/conversations/:id/research` | Explicitly rerun research and replace the pending approval checkpoint |
 | `POST` | `/api/sessions` | Create a session from a non-empty `brief` |
 | `POST` | `/api/sessions/:id/workflow` | Run both research lanes and issue an approval token |
 | `POST` | `/api/sessions/:id/approval` | Approve or reject using the server-issued token |
@@ -198,8 +210,9 @@ The test suite covers:
 - failed, cancelled, malformed, and successful live turns;
 - invalid approval tokens, pre-approval blocking, rejection, persistence, and post-restart retrieval;
 - browser session/workflow/dossier requests and server error propagation;
-- speech capture, explicit yes/no parsing, result narration, and typed fallbacks;
-- React evidence, approval, saved, export-gating, and recoverable error states.
+- bounded conversation memory, grounded answers, research-rerun transitions, and token redaction;
+- continuous speech capture, explicit yes/no parsing, result narration, stop behavior, and typed fallbacks;
+- React conversation, evidence, approval, saved, export-gating, restore, and recoverable error states.
 
 Some restricted execution environments prohibit binding localhost ports. In that environment, socket-based integration tests report `EPERM`; pure resolver tests and the production build remain runnable.
 
@@ -218,13 +231,13 @@ This project verifies public-source recency signals; it is not a substitute for 
 
 ## Three-minute demo flow
 
-1. Speak the claim, confirm the transcript, or type it.
+1. Type the claim, or start one continuous voice conversation and speak it.
 2. Start the two opposing research lanes.
 3. Surface the source conflict.
 4. Inspect raw and normalized date metadata.
-5. Hear the resolved or unresolved result and approval question.
-6. Pause at the server-backed approval checkpoint.
-7. Approve by voice or button and show the saved dossier state.
+5. Ask a follow-up and show that the original evidence remains in context.
+6. Hear the resolved result and approval question, then answer in the same voice loop.
+7. Approve by voice or button and show the saved, exportable dossier state.
 
 ## Project status
 
@@ -236,6 +249,7 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Connect the React UI to the session API
 - [x] Add saved-dossier export after approval
 - [x] Complete speech input, spoken result, and voice approval with text fallbacks
+- [x] Add bounded evidence-grounded conversation memory and continuous voice mode
 - [x] Complete live credentialed TrueForge rehearsal — [evidence](docs/live-rehearsal.md)
 - [x] Attach Qodo review evidence in [PR #1](https://github.com/Reet24-del/the-verifier/pull/1)
 - [ ] Record the final demo video

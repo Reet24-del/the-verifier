@@ -2,7 +2,7 @@
 
 ## Product intent
 
-The Verifier should feel like a calm, high-trust briefing console—not a chat application. It helps a user understand what the agent is doing, why evidence conflicts, what the deterministic resolver found, and exactly when their approval is needed.
+The Verifier should feel like a calm, high-trust briefing console with a focused evidence conversation—not a general-purpose chatbot. It helps a user understand what the agent is doing, question the active evidence without repeating the claim, see why sources conflict, and know exactly when approval is needed.
 
 The main design principle is **visible control**: agent work is observable; irreversible actions are impossible until the user explicitly approves.
 
@@ -25,7 +25,7 @@ The expressive marketing layer now follows the supplied editorial-tech reference
 
 The desktop product experience is a two-column decision workspace embedded below the landing narrative.
 
-- **Left column:** a prominent claim composer followed by the active verification workflow.
+- **Left column:** a prominent claim composer, persistent conversation, and active verification workflow.
 - **Right column:** a sticky dossier that summarizes evidence, conclusion, and save state.
 - **Top bar:** product context, active-session indicator, and export action.
 - **Progress strip:** a persistent four-step indicator that makes the current gate obvious.
@@ -79,6 +79,14 @@ This sequence is intentional: the user should see the agent's work before being 
 - Supporting line confirms voice-or-text entry and identifies pinned-demo data where applicable.
 
 The brief remains editable at all times. Starting a new verification clears any earlier save state.
+
+### Evidence conversation
+
+- A chronological live log labels user and Verifier turns and retains the active claim, sources, resolver output, and bounded prior context.
+- Ordinary follow-ups answer from active evidence without silently invoking new research.
+- Questions needing newer facts expose an explicit `Research again` action; a successful rerun replaces the pending approval checkpoint.
+- `Start voice conversation` begins a controlled listen → respond → listen loop. `Stop listening` ends it immediately, while fatal microphone or browser-speech failures preserve the complete typed path.
+- Only the opaque conversation ID is kept in `sessionStorage`; transcripts remain ephemeral on the server until an approved dossier snapshot is saved.
 
 ### Investigation timeline
 
@@ -209,7 +217,7 @@ The UI should support a three-minute demo in this order:
 | Date normalization and resolver policy | `src/lib/dateMetadata.js` |
 | Visual tokens, layout, and responsive styles | `src/styles.css` |
 
-The UI now consumes the server session workflow, renders returned research and resolver evidence, exposes recoverable errors, and binds save/reject actions to the server's one-time approval checkpoint. The browser Web Speech API captures an editable spoken brief, pauses for transcript confirmation, narrates the result and save question, and accepts an explicit spoken yes/no decision. Browsers without a working browser speech service receive an actionable Chrome/Safari or typed-input fallback; no external speech API is required. JSON export remains disabled until the server confirms persistence, then retrieves the saved dossier from the session endpoint. TrueForge live mode uses the same UI contract; future streaming support can replace the current request/response transition with incremental direct-research events without changing the layout.
+The UI now consumes the conversation and session workflows, renders returned research and resolver evidence, preserves bounded follow-up context, and binds save/reject actions to the server's one-time approval checkpoint. The browser Web Speech API runs a user-controlled listen/respond/listen loop, narrates evidence-grounded answers and the save question, and accepts an explicit spoken yes/no decision. Browsers without a working browser speech service receive an actionable typed fallback; no external speech API is required. JSON export remains disabled until the server confirms persistence, then retrieves the saved dossier and approved transcript snapshot from the session endpoint.
 
 ## Figma working file
 

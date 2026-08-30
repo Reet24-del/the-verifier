@@ -345,7 +345,8 @@ function isBoundedMessage(value) {
 
 function resultMessage(result) {
   const summary = isNonEmptyString(result?.summary) ? result.summary.trim() : 'The investigation is complete.';
-  const resolution = isNonEmptyString(result?.resolution?.message) ? ` ${result.resolution.message.trim()}` : '';
+  const resolutionMessage = isNonEmptyString(result?.resolution?.message) ? result.resolution.message.trim() : '';
+  const resolution = resolutionMessage && !summary.includes(resolutionMessage) ? ` ${resolutionMessage}` : '';
   return `${summary}${resolution} I am keeping this evidence in our conversation. Would you like to approve and save it, ask a follow-up, or research again?`;
 }
 
