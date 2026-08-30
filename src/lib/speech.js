@@ -42,16 +42,20 @@ export function createBrowserVoice(browser = globalThis) {
         return Promise.resolve(false);
       }
 
-      browser.speechSynthesis.cancel();
-      browser.speechSynthesis.speak(new SpeechUtterance(message));
-      return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const utterance = new SpeechUtterance(message);
+        utterance.onend = () => resolve(true);
+        utterance.onerror = () => resolve(false);
+        browser.speechSynthesis.cancel();
+        browser.speechSynthesis.speak(utterance);
+      });
     },
   };
 }
 
 export function approvalDecisionFromTranscript(transcript) {
   const answer = transcript.trim().toLowerCase();
-  if (/\b(no|reject|stop|keep investigating|do not|don't)\b/.test(answer)) return false;
+  if (/\b(no|not|never|reject|stop|keep investigating|do not|don't|cannot|can't|won't|wouldn't|shouldn't|couldn't)\b/.test(answer)) return false;
   if (/\b(yes|approve|approved|confirm|save it|go ahead)\b/.test(answer)) return true;
   return null;
 }
