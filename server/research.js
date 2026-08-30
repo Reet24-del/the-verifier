@@ -101,6 +101,43 @@ export function createTrueForgeResearchAdapter({
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 } = {}) {
+  const runner = createTrueForgeTurnRunner({
+    baseUrl,
+    agentName,
+    agentId,
+    token,
+    fetchImpl,
+    pollIntervalMs,
+    timeoutMs,
+  });
+
+  return {
+    mode: 'trueforge',
+    serialResearch,
+    betweenAnglesMs,
+    async research({ angle, brief }) {
+      assertAngle(angle);
+      if (!isNonEmptyString(brief)) throw new Error('A non-empty brief is required for live research');
+      const { content, sessionId, turnId } = await runner.run({
+        prompt: researchPrompt({ angle, brief }),
+      });
+      const structured = readStructuredContent(content);
+      const sources = validateSources(structured.sources, angle);
+
+      return { angle, sources, sessionId, turnId };
+    },
+  };
+}
+
+export function createTrueForgeTurnRunner({
+  baseUrl,
+  agentName,
+  agentId,
+  token,
+  fetchImpl = globalThis.fetch,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+} = {}) {
   if (!isNonEmptyString(baseUrl)) throw new Error('TRUEFORGE_BASE_URL is required for live research');
   const configuredAgentName = agentName ?? agentId;
   if (!isNonEmptyString(configuredAgentName)) {
@@ -116,13 +153,8 @@ export function createTrueForgeResearchAdapter({
   };
 
   return {
-    mode: 'trueforge',
-    serialResearch,
-    betweenAnglesMs,
-    async research({ angle, brief }) {
-      assertAngle(angle);
-      if (!isNonEmptyString(brief)) throw new Error('A non-empty brief is required for live research');
-
+    async run({ prompt }) {
+      if (!isNonEmptyString(prompt)) throw new Error('A non-empty prompt is required for a TrueForge turn');
       const session = await requestJson(fetchImpl, `${apiUrl}/sessions`, {
         method: 'POST', headers, body: JSON.stringify({ agent: { name: configuredAgentName } }),
       }, timeoutMs);
@@ -133,7 +165,7 @@ export function createTrueForgeResearchAdapter({
         method: 'POST',
         headers,
         body: JSON.stringify({
-          input: [{ type: 'user.message', content: researchPrompt({ angle, brief }) }],
+          input: [{ type: 'user.message', content: prompt }],
           stream: false,
         }),
       }, timeoutMs);
@@ -147,10 +179,11 @@ export function createTrueForgeResearchAdapter({
         timeoutMs,
         pollIntervalMs,
       });
-      const structured = readStructuredResult(completedTurn);
-      const sources = validateSources(structured.sources, angle);
-
-      return { angle, sources, sessionId, turnId };
+      const content = completedTurn?.data?.state?.output?.content;
+      if (typeof content !== 'string') {
+        throw new Error('TrueForge turn completed without string output content');
+      }
+      return { content, sessionId, turnId };
     },
   };
 }
@@ -207,11 +240,7 @@ async function requestJson(fetchImpl, url, options, timeoutMs) {
   }
 }
 
-function readStructuredResult(turn) {
-  const content = turn?.data?.state?.output?.content;
-  if (typeof content !== 'string') {
-    throw new Error('TrueForge turn completed without a structured JSON source result');
-  }
+function readStructuredContent(content) {
   const parsed = parsePossibleJson(content);
   if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sources)) return parsed;
   throw new Error('TrueForge turn completed without a structured JSON source result');

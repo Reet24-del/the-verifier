@@ -7,6 +7,7 @@ import {
   createFixtureResearchAdapter,
   createResearchWorkflow,
   createTrueForgeResearchAdapter,
+  createTrueForgeTurnRunner,
 } from '../server/research.js';
 
 async function startFakeTrueForge(t, respond) {
@@ -168,6 +169,41 @@ test('TrueForge adapter follows the official HTTP envelopes through a done turn'
   assert.match(turnRequest.input[0].content, /Current Claim Finder/);
   assert.equal(turnRequest.stream, false);
   assert.equal(fake.requests[2].path, '/api/v1/sessions/session-123/turns/turn-456');
+});
+
+test('reusable TrueForge turn runner returns completed content through the official envelopes', async (t) => {
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.method === 'POST' && request.path === '/api/v1/sessions') {
+      return { body: { data: { id: 'conversation-session' } } };
+    }
+    if (request.method === 'POST' && request.path.endsWith('/turns')) {
+      return { body: { data: { id: 'conversation-turn', state: { status: 'running' } } } };
+    }
+    return {
+      body: {
+        data: {
+          id: 'conversation-turn',
+          state: {
+            status: 'done',
+            output: { content: '{"text":"Grounded answer","requiresResearch":false}' },
+          },
+        },
+      },
+    };
+  });
+  const runner = createTrueForgeTurnRunner({
+    baseUrl: fake.baseUrl,
+    agentName: 'verifier-researcher',
+    pollIntervalMs: 0,
+    timeoutMs: 1_000,
+  });
+
+  const answer = await runner.run({ prompt: 'Answer only from supplied evidence.' });
+
+  assert.equal(answer.content, '{"text":"Grounded answer","requiresResearch":false}');
+  assert.equal(answer.sessionId, 'conversation-session');
+  assert.equal(answer.turnId, 'conversation-turn');
+  assert.equal(fake.requests[1].body.input[0].content, 'Answer only from supplied evidence.');
 });
 
 test('TrueForge adapter rejects error and cancelled terminal turn envelopes without fabricating sources', async (t) => {
