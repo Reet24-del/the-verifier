@@ -233,22 +233,121 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
   const workflowSteps = ['Brief', 'Research', 'Resolve', 'Approve']
   const dossierBadge = runState === 'saved' ? 'Saved' : awaitingApproval ? 'Approval pending' : 'Draft'
 
+  const scrollToVerifier = () => {
+    document.getElementById('verifier-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-block">
-          <span className="brand-kicker">Evidence operations</span>
-          <div className="brand">THE VERIFIER</div>
-        </div>
-        <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} <span>· Save locked until approval</span></div>
-        <button className="button secondary" disabled={runState !== 'saved' || exporting} onClick={exportDossier}>{exporting ? 'Preparing…' : 'Export dossier'}</button>
+      <header className="site-header">
+        <a className="brand-lockup" href="#top" aria-label="The Verifier home">
+          <span className="brand-mark">V</span>
+          <span className="brand">THE VERIFIER</span>
+        </a>
+        <nav className="site-nav" aria-label="Primary navigation">
+          <a href="#why">Why it matters</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#trust">Trust model</a>
+        </nav>
+        <button className="button primary header-cta" onClick={scrollToVerifier}>Try the verifier</button>
       </header>
+
+      <section className="landing-hero" id="top">
+        <div className="landing-hero-copy">
+          <h1>Verify public claims with evidence you can inspect.</h1>
+          <p>The Verifier investigates both sides of a claim, resolves conflicts using machine-readable dates, and asks for your approval before anything is saved.</p>
+          <div className="hero-actions">
+            <button className="button primary landing-primary" onClick={scrollToVerifier}>Verify a claim</button>
+            <a className="text-link" href="#how-it-works">See how it works <span aria-hidden="true">→</span></a>
+          </div>
+          <p className="hero-assurance"><span /> Voice or text input <span /> Inspectable sources <span /> Human-controlled saving</p>
+        </div>
+
+        <div className="evidence-preview" aria-label="Example claim verification">
+          <div className="preview-header">
+            <span>Live evidence preview</span>
+            <strong>Claim under review</strong>
+          </div>
+          <blockquote>“Brian Niccol is CEO of Starbucks.”</blockquote>
+          <div className="preview-lanes">
+            <div className="preview-source support-preview">
+              <span>Current evidence</span>
+              <strong>Starbucks leadership announcement</strong>
+              <small>Published Aug 13, 2024</small>
+            </div>
+            <div className="preview-source conflict-preview">
+              <span>Conflicting evidence</span>
+              <strong>Starbucks Q3 report</strong>
+              <small>Published Jul 30, 2024</small>
+            </div>
+          </div>
+          <div className="preview-resolution">
+            <span className="resolution-line" />
+            <div><small>Date metadata resolves the conflict</small><strong>Newest reliable source wins</strong></div>
+            <span className="preview-status">Approval required</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="problem-section" id="why">
+        <p className="section-index">01 / Why it matters</p>
+        <div className="problem-statement">
+          <h2>A confident answer can still hide an outdated source.</h2>
+          <p>Most research tools optimize for a quick answer. The Verifier is designed for the moment before a claim becomes a report, briefing, or permanent record—when seeing disagreement matters more than sounding certain.</p>
+        </div>
+        <div className="principle-rail" aria-label="Verification principles">
+          <div><strong>Search both directions</strong><span>Support and contradiction are investigated separately.</span></div>
+          <div><strong>Show the evidence</strong><span>Every conclusion stays connected to its public source.</span></div>
+          <div><strong>Keep humans in control</strong><span>The server cannot save until approval is explicit.</span></div>
+        </div>
+      </section>
+
+      <section className="how-section" id="how-it-works">
+        <div className="section-lead">
+          <p className="section-index">02 / How it works</p>
+          <h2>From spoken brief to approved dossier.</h2>
+          <p>Four visible stages turn an uncertain claim into a decision you can defend.</p>
+        </div>
+        <ol className="process-list">
+          <li><span>01</span><div><strong>Brief the verifier</strong><p>Speak or type the claim in plain language, then confirm the transcript before research begins.</p></div></li>
+          <li><span>02</span><div><strong>Investigate opposing angles</strong><p>One lane finds current support while another actively searches for public contradictions.</p></div></li>
+          <li><span>03</span><div><strong>Resolve with date metadata</strong><p>Structured publication dates are normalized in UTC so newer evidence is identified deterministically.</p></div></li>
+          <li><span>04</span><div><strong>Approve before saving</strong><p>Review the result, answer by voice or button, and export only after server-confirmed approval.</p></div></li>
+        </ol>
+      </section>
+
+      <section className="trust-section" id="trust">
+        <div className="trust-copy">
+          <p className="section-index">03 / Built for trust</p>
+          <h2>The agent can investigate.<br />It cannot make the final call.</h2>
+        </div>
+        <div className="trust-details">
+          <p>Every important boundary is visible in the interface and enforced in the workflow—not buried in a prompt.</p>
+          <dl>
+            <div><dt>Evidence</dt><dd>Structured sources remain inspectable</dd></div>
+            <div><dt>Resolution</dt><dd>Dates follow a deterministic priority order</dd></div>
+            <div><dt>Persistence</dt><dd>A one-time token gates server-side saving</dd></div>
+            <div><dt>Export</dt><dd>Available only for an approved dossier</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section className="product-section" id="verifier-workspace">
+        <div className="product-intro">
+          <div><p className="section-index">04 / Try it now</p><h2>Run the verification workflow.</h2></div>
+          <p>The Starbucks leadership claim is preloaded so you can see a real source conflict and date resolution immediately.</p>
+        </div>
+        <div className="product-bar">
+          <div className="brand-block"><span className="brand-kicker">Evidence operations</span><div className="brand">THE VERIFIER</div></div>
+          <div className="session"><span className="live-dot" /> Session {session?.id ? session.status.replaceAll('_', ' ') : 'ready'} <span>· Save locked until approval</span></div>
+          <button className="button secondary" disabled={runState !== 'saved' || exporting} onClick={exportDossier}>{exporting ? 'Preparing…' : 'Export dossier'}</button>
+        </div>
 
       <div className="workspace">
         <section className="primary-column">
           <section className="hero-panel">
             <p className="hero-kicker">Human-controlled verification</p>
-            <h1>Verify a public claim before it becomes permanent.</h1>
+            <h2>Verify a public claim before it becomes permanent.</h2>
             <p className="hero-copy">Two opposing research angles surface the evidence. Deterministic date metadata breaks the tie. Nothing is saved until you approve it.</p>
             <div className="workflow-steps" aria-label="Verification progress">
               {workflowSteps.map((step, index) => {
@@ -323,7 +422,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
 
         <aside className="dossier panel">
           <div className="dossier-header"><div><p>Decision dossier</p><h2>Evidence at a glance</h2></div><span className={dossierStatus.className}>{dossierBadge}</span></div>
-          <section className="conclusion"><p>Overall conclusion</p><h1>{conclusion.title}</h1><p>{conclusion.text}</p></section>
+          <section className="conclusion"><p>Overall conclusion</p><h3>{conclusion.title}</h3><p>{conclusion.text}</p></section>
           <section className="dossier-section">
             <p className="dossier-label">Evidence summary</p>
             {allSources.length
@@ -334,6 +433,12 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
           <p className="privacy-note">The evidence stays inside this session until the approval checkpoint succeeds.</p>
         </aside>
       </div>
+      </section>
+
+      <footer className="site-footer">
+        <div><span className="brand">THE VERIFIER</span><p>Evidence first. Approval always.</p></div>
+        <a href="https://github.com/Reet24-del/the-verifier" target="_blank" rel="noreferrer">View the project on GitHub <span aria-hidden="true">↗</span></a>
+      </footer>
     </main>
   )
 }

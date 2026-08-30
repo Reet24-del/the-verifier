@@ -6,9 +6,22 @@ The Verifier should feel like a calm, high-trust briefing console—not a chat a
 
 The main design principle is **visible control**: agent work is observable; irreversible actions are impossible until the user explicitly approves.
 
-## Primary screen
+## Landing-page information architecture
 
-The desktop experience is a two-column decision workspace.
+The first visit is now an explanatory product journey before the operational workspace. It answers four questions in order:
+
+1. **What does The Verifier do?** — The hero promises inspectable evidence, not a generic AI answer.
+2. **Why is it needed?** — The problem section explains how confident answers can hide outdated sources.
+3. **How does it work?** — A four-stage process explains brief, adversarial research, date resolution, and approval.
+4. **Why should I trust it?** — The trust section names the evidence, resolution, persistence, and export boundaries.
+
+The hero includes a compact, code-native preview of the real Starbucks leadership conflict. It functions as product proof rather than decoration: two dated sources disagree, structured date metadata resolves the order, and approval remains required. Primary calls to action scroll directly to the live verifier on the same page, so explanation never becomes a barrier to trying the product.
+
+The landing page uses varied section rhythms rather than a repeated card grid: a split hero, an open principle rail, a numbered process list, a dark trust band, and finally the framed product workspace. It reuses the existing ink, amber, red, and green evidence system.
+
+## Live product workspace
+
+The desktop product experience is a two-column decision workspace embedded below the landing narrative.
 
 - **Left column:** a prominent claim composer followed by the active verification workflow.
 - **Right column:** a sticky dossier that summarizes evidence, conclusion, and save state.

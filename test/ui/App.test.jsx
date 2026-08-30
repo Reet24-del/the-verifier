@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from '../../src/App.jsx';
 
@@ -59,6 +59,22 @@ const workflow = {
 afterEach(cleanup);
 
 describe('The Verifier workflow', () => {
+  it('explains the product and leads into the live workflow', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: /verify public claims with evidence you can inspect/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /from spoken brief to approved dossier/i })).toBeTruthy();
+    expect(screen.getByText(/server cannot save until approval is explicit/i)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /run the verification workflow/i })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: /brief to verify/i })).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: /try the verifier/i }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
   it('captures a spoken brief and requires transcript confirmation before verification', async () => {
     const calls = [];
     const api = {
