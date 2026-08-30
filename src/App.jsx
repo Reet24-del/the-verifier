@@ -72,6 +72,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
   const [listeningFor, setListeningFor] = useState(null)
   const [approvalPrompt, setApprovalPrompt] = useState('')
   const [narrating, setNarrating] = useState(false)
+  const [voiceUnavailable, setVoiceUnavailable] = useState(false)
   const approvalActionRef = useRef(false)
 
   const result = workflow?.result ?? null
@@ -86,6 +87,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
   const conclusion = conclusionFor(runState, result)
   const isBusy = runState === 'running' || runState === 'saving' || runState === 'rejecting' || listeningFor !== null || narrating
   const awaitingApproval = runState === 'awaiting_approval'
+  const voiceAvailable = voice.recognitionSupported && !voiceUnavailable
 
   const captureBrief = async () => {
     setListeningFor('brief')
@@ -96,6 +98,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
       setSpokenBrief(transcript)
       setNotice(`I heard: “${transcript}” Confirm it below or edit the text first.`)
     } catch (error) {
+      if (error?.code === 'speech-service-unavailable') setVoiceUnavailable(true)
       setNotice(error instanceof Error ? error.message : 'Speech capture failed. Type your brief instead.')
     } finally {
       setListeningFor(null)
@@ -185,6 +188,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
       await decide(approved, true)
     } catch (error) {
       approvalActionRef.current = false
+      if (error?.code === 'speech-service-unavailable') setVoiceUnavailable(true)
       setNotice(error instanceof Error ? error.message : 'Voice approval failed. Use the buttons instead.')
     } finally {
       setListeningFor(null)
@@ -342,11 +346,11 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
             <div className="brief-input-wrap">
               <textarea aria-label="Brief to verify" value={brief} disabled={isBusy} onChange={(event) => { setBrief(event.target.value); setSpokenBrief('') }} />
               <div className="brief-actions">
-                {voice.recognitionSupported && <button className="button secondary compact" disabled={isBusy} onClick={captureBrief}>{listeningFor === 'brief' ? 'Listening…' : 'Speak brief'}</button>}
+                {voiceAvailable && <button className="button secondary compact" disabled={isBusy} onClick={captureBrief}>{listeningFor === 'brief' ? 'Listening…' : 'Speak brief'}</button>}
                 <button className="button primary compact" disabled={isBusy || !brief.trim()} onClick={runInvestigation}>{verifyButtonLabel}</button>
               </div>
             </div>
-            <p className="input-meta">{voice.recognitionSupported ? 'Speak, confirm the transcript, or type your claim.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} <span>Demo uses pinned public Starbucks sources.</span></p>
+            <p className="input-meta">{voiceAvailable ? 'Speak, confirm the transcript, or type your claim.' : voiceUnavailable ? 'Voice is unavailable in this browser session. Type your brief instead.' : 'Voice recognition is unavailable in this browser. Type your brief instead.'} <span>Demo uses pinned public Starbucks sources.</span></p>
           </section>
 
           <section className="panel timeline-panel">
@@ -394,7 +398,7 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
           <section className="approval-panel">
             <div className="approval-copy"><div className="section-heading"><span>4</span><div>Human approval<em>Server-enforced gate</em></div></div><h2>Save this verified brief?</h2><p>{approvalPrompt || 'Saving is blocked at the server until you explicitly decide.'}</p></div>
             <div className="approval-actions">
-              {voice.recognitionSupported && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
+              {voiceAvailable && <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={captureApproval}>{listeningFor === 'approval' ? 'Listening…' : 'Answer by voice'}</button>}
               <button className="button primary" disabled={!awaitingApproval || isBusy} onClick={() => decide(true)}>{runState === 'saving' ? 'Saving…' : 'Approve & save'}</button>
               <button className="button secondary" disabled={!awaitingApproval || isBusy} onClick={() => decide(false)}>Keep investigating</button>
             </div>

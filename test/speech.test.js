@@ -83,10 +83,11 @@ test('browser voice reports when the browser speech service is unavailable', asy
   }
   const voice = createBrowserVoice({ SpeechRecognition: Recognition });
 
-  await assert.rejects(
-    voice.listen(),
-    /Browser speech recognition is unavailable right now\. Type your brief instead or try Chrome\/Safari\./,
-  );
+  await assert.rejects(voice.listen(), (error) => {
+    assert.match(error.message, /Browser speech recognition is unavailable right now\. Type your brief instead or try Chrome\/Safari\./);
+    assert.equal(error.code, 'speech-service-unavailable');
+    return true;
+  });
 });
 
 test('browser voice resolves narration only after speech synthesis ends', async () => {
@@ -107,4 +108,20 @@ test('browser voice resolves narration only after speech synthesis ends', async 
   utterance.onend();
   await speaking;
   assert.equal(finished, true);
+});
+
+test('browser voice releases the workflow when speech synthesis never finishes', async () => {
+  class SpeechUtterance {}
+  let scheduled;
+  const voice = createBrowserVoice({
+    SpeechSynthesisUtterance: SpeechUtterance,
+    speechSynthesis: { cancel() {}, speak() {} },
+    setTimeout(callback) { scheduled = callback; return 1; },
+    clearTimeout() {},
+  });
+
+  const speaking = voice.speak('Approval prompt');
+  scheduled();
+
+  assert.equal(await speaking, false);
 });

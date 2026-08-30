@@ -236,6 +236,25 @@ describe('The Verifier workflow', () => {
     expect(await screen.findByText('Saved with approval')).toBeTruthy();
   });
 
+  it('stops offering voice capture after the browser speech service fails', async () => {
+    const unavailable = new Error('Browser speech recognition is unavailable right now. Type your brief instead.');
+    unavailable.code = 'speech-service-unavailable';
+    const voice = {
+      recognitionSupported: true,
+      listen: async () => { throw unavailable; },
+      speak: async () => {},
+    };
+    const user = userEvent.setup();
+    render(<App voice={voice} />);
+
+    await user.click(screen.getByRole('button', { name: /speak brief/i }));
+
+    expect(await screen.findByText(/Browser speech recognition is unavailable right now/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /speak brief/i })).toBeNull();
+    expect(screen.getByRole('textbox', { name: /brief to verify/i }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText(/Voice is unavailable in this browser session\. Type your brief instead/i)).toBeTruthy();
+  });
+
   it('renders server findings and shows saved only after server approval', async () => {
     const api = {
       runVerification: async () => workflow,

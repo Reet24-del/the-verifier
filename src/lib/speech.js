@@ -45,8 +45,10 @@ export function createBrowserVoice(browser = globalThis) {
             network: 'Browser speech recognition is unavailable right now. Type your brief instead or try Chrome/Safari.',
             aborted: 'Speech capture stopped. Try again or type your brief.',
           };
-          reject(new Error(messages[event.error]
-            ?? 'I could not understand the audio. Please try again or type your response.'));
+          const error = new Error(messages[event.error]
+            ?? 'I could not understand the audio. Please try again or type your response.');
+          if (event.error === 'network') error.code = 'speech-service-unavailable';
+          reject(error);
         };
         recognition.onend = () => {
           if (!settled) reject(new Error('No speech was detected. Please try again or type your response.'));
@@ -63,8 +65,23 @@ export function createBrowserVoice(browser = globalThis) {
 
       return new Promise((resolve) => {
         const utterance = new SpeechUtterance(message);
-        utterance.onend = () => resolve(true);
-        utterance.onerror = () => resolve(false);
+        const schedule = typeof browser.setTimeout === 'function'
+          ? browser.setTimeout.bind(browser)
+          : globalThis.setTimeout.bind(globalThis);
+        const cancelSchedule = typeof browser.clearTimeout === 'function'
+          ? browser.clearTimeout.bind(browser)
+          : globalThis.clearTimeout.bind(globalThis);
+        let settled = false;
+        let timeout;
+        const finish = (spoken) => {
+          if (settled) return;
+          settled = true;
+          cancelSchedule(timeout);
+          resolve(spoken);
+        };
+        utterance.onend = () => finish(true);
+        utterance.onerror = () => finish(false);
+        timeout = schedule(() => finish(false), 8000);
         browser.speechSynthesis.cancel();
         browser.speechSynthesis.speak(utterance);
       });
