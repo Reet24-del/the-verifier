@@ -17,7 +17,9 @@ The first visit is now an explanatory product journey before the operational wor
 
 The hero includes a compact, code-native preview of the real Starbucks leadership conflict. It functions as product proof rather than decoration: two dated sources disagree, structured date metadata resolves the order, and approval remains required. Primary calls to action scroll directly to the live verifier on the same page, so explanation never becomes a barrier to trying the product.
 
-The landing page uses varied section rhythms rather than a repeated card grid: a split hero, an open principle rail, a numbered process list, a dark trust band, and finally the framed product workspace. It reuses the existing ink, amber, red, and green evidence system.
+The landing page uses varied section rhythms rather than a repeated card grid: a split hero, an open principle rail, a numbered process list, a dark trust band, and finally the framed product workspace.
+
+The expressive marketing layer now follows the supplied editorial-tech references: saturated tangerine orange, warm cream, near-black type, hard outlined frames, oversized typography, and one custom illustration. The hero artwork at `public/hero-verification.png` depicts two opposing sources being inspected through a magnifying lens and resolved into an approved evidence card. It uses a slow floating motion and a restrained hover scale; `prefers-reduced-motion` disables both. The operational product workspace intentionally retains the existing midnight evidence system so verification remains calm and high-trust after the more energetic introduction.
 
 ## Live product workspace
 

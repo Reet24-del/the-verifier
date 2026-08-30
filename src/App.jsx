@@ -263,30 +263,12 @@ export default function App({ api = defaultApi, saveJson = downloadJson, voice =
           <p className="hero-assurance"><span /> Voice or text input <span /> Inspectable sources <span /> Human-controlled saving</p>
         </div>
 
-        <div className="evidence-preview" aria-label="Example claim verification">
-          <div className="preview-header">
-            <span>Live evidence preview</span>
-            <strong>Claim under review</strong>
+        <figure className="hero-artwork" aria-label="Two conflicting sources becoming one verified result">
+          <div className="hero-artwork-frame">
+            <img src="/hero-verification.png" alt="A magnifying lens compares supporting and conflicting documents, producing a verified evidence card" />
           </div>
-          <blockquote>“Brian Niccol is CEO of Starbucks.”</blockquote>
-          <div className="preview-lanes">
-            <div className="preview-source support-preview">
-              <span>Current evidence</span>
-              <strong>Starbucks leadership announcement</strong>
-              <small>Published Aug 13, 2024</small>
-            </div>
-            <div className="preview-source conflict-preview">
-              <span>Conflicting evidence</span>
-              <strong>Starbucks Q3 report</strong>
-              <small>Published Jul 30, 2024</small>
-            </div>
-          </div>
-          <div className="preview-resolution">
-            <span className="resolution-line" />
-            <div><small>Date metadata resolves the conflict</small><strong>Newest reliable source wins</strong></div>
-            <span className="preview-status">Approval required</span>
-          </div>
-        </div>
+          <figcaption><span>Two opposing sources</span><strong>One inspectable decision</strong><span>Human approval required</span></figcaption>
+        </figure>
       </section>
 
       <section className="problem-section" id="why">
