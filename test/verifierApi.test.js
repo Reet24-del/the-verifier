@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getDossier, runVerification, submitApproval } from '../src/lib/verifierApi.js';
+import {
+  createConversation,
+  getConversation,
+  getDossier,
+  researchConversationAgain,
+  runVerification,
+  sendConversationMessage,
+  submitApproval,
+} from '../src/lib/verifierApi.js';
 
 function jsonResponse(status, body) {
   return {
@@ -125,4 +133,66 @@ test('getDossier retrieves only the server-persisted session dossier', async () 
     options: { method: 'GET' },
   });
   assert.deepEqual(response, dossier);
+});
+
+test('createConversation starts the conversational workflow with a trimmed brief', async () => {
+  let request;
+  const fetchImpl = async (url, options) => {
+    request = { url, options };
+    return jsonResponse(201, {
+      conversation: { id: 'conversation-1', messages: [], activeInvestigation: { sessionId: 'session-1' } },
+      session: { id: 'session-1', status: 'awaiting_approval' },
+      result: { status: 'resolved' },
+      approval: { token: 'approval-token' },
+    });
+  };
+
+  const response = await createConversation({ brief: '  Verify x  ', fetchImpl });
+
+  assert.deepEqual(request, {
+    url: '/api/conversations',
+    options: {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ brief: 'Verify x' }),
+    },
+  });
+  assert.equal(response.approvalToken, 'approval-token');
+  assert.equal(response.conversation.id, 'conversation-1');
+});
+
+test('conversation client restores, sends follow-ups, and requests explicit research reruns', async () => {
+  const requests = [];
+  const fetchImpl = async (url, options) => {
+    requests.push({ url, options });
+    if (options.method === 'GET') return jsonResponse(200, { conversation: { id: 'conversation-1', messages: [] } });
+    if (url.endsWith('/messages')) return jsonResponse(200, { messages: [], requiresResearch: false });
+    return jsonResponse(200, {
+      conversation: { id: 'conversation-1' },
+      session: { id: 'session-2', status: 'awaiting_approval' },
+      result: { status: 'resolved' },
+      approval: { token: 'new-token' },
+    });
+  };
+
+  await getConversation({ conversationId: 'conversation-1', fetchImpl });
+  await sendConversationMessage({ conversationId: 'conversation-1', message: '  Why?  ', fetchImpl });
+  const rerun = await researchConversationAgain({ conversationId: 'conversation-1', brief: '  Check again  ', fetchImpl });
+
+  assert.deepEqual(requests, [
+    { url: '/api/conversations/conversation-1', options: { method: 'GET' } },
+    {
+      url: '/api/conversations/conversation-1/messages',
+      options: {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Why?' }),
+      },
+    },
+    {
+      url: '/api/conversations/conversation-1/research',
+      options: {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ brief: 'Check again' }),
+      },
+    },
+  ]);
+  assert.equal(rerun.approvalToken, 'new-token');
 });
