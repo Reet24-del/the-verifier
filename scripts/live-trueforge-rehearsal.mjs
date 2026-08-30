@@ -1,11 +1,15 @@
 import { writeFile } from 'node:fs/promises';
+import { Agent } from 'undici';
 
 const api = process.env.VERIFIER_API_URL ?? 'http://127.0.0.1:3001';
 const brief = process.env.VERIFIER_REHEARSAL_BRIEF ?? 'Verify that Brian Niccol is CEO of Starbucks.';
+const requestTimeoutMs = Number.parseInt(process.env.VERIFIER_REHEARSAL_TIMEOUT_MS ?? '900000', 10);
+const dispatcher = new Agent({ headersTimeout: requestTimeoutMs, bodyTimeout: requestTimeoutMs });
 
 async function request(path, options = {}) {
   const response = await fetch(`${api}${path}`, {
     ...options,
+    dispatcher,
     headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
   });
   const text = await response.text();
@@ -49,6 +53,7 @@ const report = {
     publishedAt: source.publishedAt,
   }))),
   resolution: result.resolution,
+  sandboxExecution: result.sandboxExecution,
   preApprovalExportStatus: beforeApproval.response.status,
   approvalStatus: approval.body.session.status,
   exportedDossierId: exported.body.dossier.id,

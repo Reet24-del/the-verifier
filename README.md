@@ -4,6 +4,9 @@
 
 Built for the **TrueForge Agent Harness Hackathon** by WeMakeDevs × TrueFoundry.
 
+- **Live app:** [the-verifier.vercel.app](https://the-verifier.vercel.app/)
+- **Three-minute demo:** complete; reproducible source is in [`demo-video/`](demo-video/).
+
 ## Why this exists
 
 People often enter important meetings with claims gathered from a quick search: a person's current role, a company's leadership, or another fact that may have changed. Search ranking does not guarantee recency, and an AI-generated answer can hide disagreement between sources.
@@ -43,7 +46,7 @@ flowchart LR
     M --> D[Contradiction Hunter]
     C --> E[Source sets]
     D --> E
-    E --> F[Deterministic date resolver]
+    E --> F[TrueForge sandbox date resolver]
     F --> G{Resolved?}
     G -->|Yes| H[Newest strong signal]
     G -->|No| I[Unresolved / human review]
@@ -74,8 +77,8 @@ A result requires two independent sources with strong date evidence and a unique
 | React + Vite UI | Persistent text/voice conversation, opposing evidence lanes, resolver table, approval state, and approved JSON export |
 | Node HTTP server | Ephemeral conversation memory, grounded replies, session state, approval-token validation, and dossier persistence |
 | Research adapters | Credential-free fixture adapter or TrueForge session/turn adapter |
-| Metadata resolver | Pure shared module for deterministic extraction, normalization, and recency policy |
-| TrueForge | Persistent live sessions, direct two-angle research prompts, tool use, and structured turn results |
+| Metadata resolver | Deterministic sandbox program plus a pure server-side oracle that rejects divergent output |
+| TrueForge | Persistent live sessions, two opposing Exa turns, verified `sandbox/exec`, and structured results |
 
 No TrueForge token or model credential is exposed to browser code.
 
@@ -139,11 +142,13 @@ Vite proxies `/api` to the local server on port `3001`, so the interface runs th
 
 ### Run with TrueForge
 
-Start a local TrueForge instance and configure an agent capable of public-web research. Then set:
+Start a local TrueForge instance and configure an agent with Exa web research and sandbox access enabled. TrueForge must have usable sandbox compute (a configured provider, or its supported local sandbox runtime). Then set:
 
 ```bash
 export TRUEFORGE_BASE_URL="http://localhost:8790/api/v1"
 export TRUEFORGE_AGENT_NAME="verifier-researcher"
+# Optional: use a dedicated sandbox-enabled agent for deterministic resolution.
+export TRUEFORGE_RESOLVER_AGENT_NAME="verifier-metadata-resolver"
 # Optional when the TrueForge instance requires authentication:
 export TRUEFORGE_TOKEN="your-server-side-token"
 # Optional for free-tier providers with a low per-minute token allowance:
@@ -166,7 +171,9 @@ Live research follows the official HTTP flow:
 2. Start a non-streaming turn for each research angle.
 3. Poll each turn until `done`, `error`, or `cancelled`.
 4. Validate the returned structured source JSON.
-5. Run the local deterministic resolver over the returned metadata inputs.
+5. Submit the structured date inputs to a third TrueForge turn that must execute the supplied deterministic Python resolver through `sandbox/exec`.
+6. Read persisted turn events and require a matching `sandbox.created`, exact unmodified `exec` command, successful `tool.response`, and zero exit code before accepting the result.
+7. Compare the compact sandbox recency proof with the server-side deterministic oracle and fail closed on any mismatch.
 
 If live configuration is absent, the server automatically uses fixture mode.
 
@@ -250,9 +257,9 @@ This project verifies public-source recency signals; it is not a substitute for 
 - [x] Add saved-dossier export after approval
 - [x] Complete speech input, spoken result, and voice approval with text fallbacks
 - [x] Add bounded evidence-grounded conversation memory and continuous voice mode
-- [x] Complete live credentialed TrueForge rehearsal — [evidence](docs/live-rehearsal.md)
+- [x] Complete live credentialed TrueForge rehearsal with verified sandbox execution — [evidence](docs/live-rehearsal.md)
 - [x] Attach Qodo review evidence in [PR #1](https://github.com/Reet24-del/the-verifier/pull/1)
-- [ ] Record the final demo video
+- [x] Record the final three-minute demo video — [reproducible source](demo-video/)
 
 The checklist is intentionally honest: incomplete integrations are not presented as finished hackathon evidence.
 

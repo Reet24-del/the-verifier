@@ -114,6 +114,54 @@ test('research workflow can serialize live angles for rate-limited providers', a
   assert.equal(result.status, 'resolved');
 });
 
+test('research workflow uses an adapter sandbox resolver when one is available', async () => {
+  const sources = {
+    current: {
+      title: 'Current source',
+      url: 'https://example.test/current',
+      claim: 'Current claim',
+      stance: 'supports',
+      publishedAt: '2026-08-25T00:00:00Z',
+    },
+    contradiction: {
+      title: 'Older source',
+      url: 'https://example.test/older',
+      claim: 'Older claim',
+      stance: 'contradicts',
+      publishedAt: '2026-08-24T00:00:00Z',
+    },
+  };
+  let resolverInput;
+  const adapter = {
+    mode: 'trueforge',
+    async research({ angle }) {
+      return { angle, sources: [sources[angle]] };
+    },
+    async resolveMetadata(input) {
+      resolverInput = input;
+      return {
+        resolution: {
+          status: 'resolved',
+          evidence: [],
+          newest: { title: 'Current source', url: sources.current.url },
+          message: 'Resolved inside the sandbox.',
+        },
+        sandboxExecution: { verified: true, sandboxId: 'sandbox-1', toolCallId: 'call-1' },
+      };
+    },
+  };
+
+  const result = await createResearchWorkflow({ adapter })({ brief: 'Verify a claim.' });
+
+  assert.deepEqual(resolverInput.sources, [sources.current, sources.contradiction]);
+  assert.equal(result.resolution.message, 'Resolved inside the sandbox.');
+  assert.deepEqual(result.sandboxExecution, {
+    verified: true,
+    sandboxId: 'sandbox-1',
+    toolCallId: 'call-1',
+  });
+});
+
 test('TrueForge adapter follows the official HTTP envelopes through a done turn', async (t) => {
   const fake = await startFakeTrueForge(t, (request) => {
     if (request.method === 'POST' && request.path === '/api/v1/sessions') {
@@ -204,6 +252,155 @@ test('reusable TrueForge turn runner returns completed content through the offic
   assert.equal(answer.sessionId, 'conversation-session');
   assert.equal(answer.turnId, 'conversation-turn');
   assert.equal(fake.requests[1].body.input[0].content, 'Answer only from supplied evidence.');
+});
+
+test('TrueForge metadata resolver accepts only a completed, traced sandbox exec result', async (t) => {
+  const sandboxResult = {
+    evidence: [
+      {
+        title: 'Current source',
+        url: 'https://example.test/current',
+        field: 'publishedAt',
+        raw: '2026-08-25T00:00:00Z',
+        normalized: '2026-08-25T00:00:00.000Z',
+        strength: 'strong',
+        provenance: 'search-provider',
+      },
+      {
+        title: 'Older source',
+        url: 'https://example.test/older',
+        field: 'publishedAt',
+        raw: '2026-08-24T00:00:00Z',
+        normalized: '2026-08-24T00:00:00.000Z',
+        strength: 'strong',
+        provenance: 'search-provider',
+      },
+    ],
+    status: 'resolved',
+    newest: {
+      title: 'Current source',
+      url: 'https://example.test/current',
+      field: 'publishedAt',
+      raw: '2026-08-25T00:00:00Z',
+      normalized: '2026-08-25T00:00:00.000Z',
+      strength: 'strong',
+      provenance: 'search-provider',
+    },
+    message: 'Current source has the newest strong machine-readable publishedAt signal (search-provider).',
+  };
+  const sandboxProof = {
+    status: 'resolved',
+    newestIndex: 0,
+    normalizedDates: ['2026-08-25T00:00:00.000Z', '2026-08-24T00:00:00.000Z'],
+  };
+  let sandboxCommand;
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.method === 'POST' && request.path === '/api/v1/sessions') {
+      return { body: { data: { id: 'sandbox-session' } } };
+    }
+    if (request.method === 'POST' && request.path === '/api/v1/sessions/sandbox-session/turns') {
+      sandboxCommand = request.body.input[0].content.split('\n\n').at(-1);
+      return { body: { data: { id: 'sandbox-turn', state: { status: 'running' } } } };
+    }
+    if (request.path === '/api/v1/sessions/sandbox-session/turns/sandbox-turn/events?limit=100&order=asc') {
+      return {
+        body: {
+          data: [
+            { type: 'sandbox.created', id: 'event-sandbox', sandbox_id: 'sandbox-123', created_at: '2026-08-30T10:00:00Z', thread_id: null },
+            {
+              type: 'model.message', id: 'event-call', thread_id: 'main', created_at: '2026-08-30T10:00:01Z',
+              tool_calls: [{
+                id: 'call-sandbox-exec',
+                type: 'function',
+                function: { name: 'sandbox__exec', arguments: JSON.stringify({ command: sandboxCommand }) },
+                tool_info: { type: 'truefoundry-system', name: 'exec' },
+              }],
+            },
+            {
+              type: 'tool.response', id: 'event-response', thread_id: 'main', created_at: '2026-08-30T10:00:02Z',
+              tool_call_id: 'call-sandbox-exec',
+              content: JSON.stringify({ success: true, response: { exitCode: 0, result: JSON.stringify(sandboxProof) } }),
+            },
+          ],
+          pagination: { next_page_token: null },
+        },
+      };
+    }
+    return {
+      body: {
+        data: {
+          id: 'sandbox-turn',
+          state: { status: 'done', output: { content: JSON.stringify(sandboxProof) } },
+        },
+      },
+    };
+  });
+  const adapter = createTrueForgeResearchAdapter({
+    baseUrl: fake.baseUrl,
+    agentName: 'verifier-researcher',
+    pollIntervalMs: 0,
+    timeoutMs: 1_000,
+  });
+
+  const result = await adapter.resolveMetadata({
+    sources: [
+      { title: 'Current source', url: 'https://example.test/current', publishedAt: '2026-08-25T00:00:00Z' },
+      { title: 'Older source', url: 'https://example.test/older', publishedAt: '2026-08-24T00:00:00Z' },
+    ],
+  });
+
+  assert.deepEqual(result.resolution, sandboxResult);
+  assert.deepEqual(result.sandboxExecution, {
+    verified: true,
+    sessionId: 'sandbox-session',
+    turnId: 'sandbox-turn',
+    sandboxId: 'sandbox-123',
+    toolCallId: 'call-sandbox-exec',
+    eventIds: ['event-sandbox', 'event-call', 'event-response'],
+  });
+  assert.match(fake.requests[1].body.input[0].content, /sandbox\/exec/);
+  assert.match(fake.requests[1].body.input[0].content, /python/);
+});
+
+test('TrueForge metadata resolver fails closed without persisted sandbox execution evidence', async (t) => {
+  const fake = await startFakeTrueForge(t, (request) => {
+    if (request.method === 'POST' && request.path === '/api/v1/sessions') {
+      return { body: { data: { id: 'unverified-session' } } };
+    }
+    if (request.method === 'POST' && request.path.endsWith('/turns')) {
+      return { body: { data: { id: 'unverified-turn', state: { status: 'running' } } } };
+    }
+    if (request.path.endsWith('/events?limit=100&order=asc')) {
+      return { body: { data: [], pagination: { next_page_token: null } } };
+    }
+    return {
+      body: {
+        data: {
+          id: 'unverified-turn',
+          state: {
+            status: 'done',
+            output: { content: '{"status":"resolved","evidence":[],"message":"Trust me"}' },
+          },
+        },
+      },
+    };
+  });
+  const adapter = createTrueForgeResearchAdapter({
+    baseUrl: fake.baseUrl,
+    agentName: 'verifier-researcher',
+    pollIntervalMs: 0,
+    timeoutMs: 1_000,
+  });
+
+  await assert.rejects(
+    adapter.resolveMetadata({
+      sources: [
+        { title: 'A', url: 'https://example.test/a', publishedAt: '2026-08-25T00:00:00Z' },
+        { title: 'B', url: 'https://example.test/b', publishedAt: '2026-08-24T00:00:00Z' },
+      ],
+    }),
+    /verified sandbox execution/i,
+  );
 });
 
 test('TrueForge adapter rejects error and cancelled terminal turn envelopes without fabricating sources', async (t) => {

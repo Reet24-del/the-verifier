@@ -1,0 +1,19 @@
+Every day, public claims become reports, posts, and decisions before anyone checks whether the source behind them is current. A confident answer can still be built on outdated evidence. The Verifier is designed for the moment before that claim becomes permanent.
+
+The experience starts with one clear brief. You can type it, or speak naturally and continue the conversation without restarting. For this demo, I am asking: verify that Brian Niccol is the chief executive officer of Starbucks.
+
+Instead of producing one persuasive paragraph, The Verifier investigates the claim from two opposing directions. The support lane looks for current evidence that confirms the claim. At the same time, the challenge lane actively searches for credible public evidence that contradicts it. Keeping these lanes visible prevents a confident answer from hiding disagreement.
+
+Here, the supporting evidence is Starbucks' current leadership page, which identifies Brian Niccol as chairman and chief executive officer. The conflicting evidence is an older Starbucks announcement naming Laxman Narasimhan as chief executive officer. Both sources are real, public, and inspectable. The question is not which sentence sounds more confident. The question is which evidence is newer.
+
+That is where structured date metadata matters. The Verifier extracts machine-readable publication and modification dates, records the field used, preserves the raw value, and normalizes it to UTC. The older announcement resolves to March twentieth, twenty twenty-three. The current leadership evidence resolves to a later date. The system can therefore explain exactly why the apparent conflict is outdated and why the current claim is supported.
+
+The result stays connected to its sources. You can inspect the supporting lane, the contradiction lane, the normalized dates, and the reasoning that resolved the conflict. You can also ask follow-up questions while the same evidence remains in conversational memory.
+
+But research is not permission to save. The Verifier creates a one-time approval token, and the server refuses persistence until the user explicitly approves. If the user keeps investigating, nothing is stored. Only after server-confirmed approval does the dossier become permanent, and only then is export enabled.
+
+The exported dossier contains the original brief, conclusion, source URLs, evidence roles, date metadata, resolution explanation, and approval checkpoint. That creates an audit trail a journalist, researcher, policy team, or compliance reviewer can actually defend.
+
+The architecture combines a focused research workflow, opposing evidence lanes, deterministic metadata resolution, and a human-controlled persistence boundary. TrueForge coordinates the research flow, while the product keeps every important trust decision visible in the interface.
+
+The Verifier does not ask you to trust a polished answer. It gives you the evidence, shows you the conflict, explains the date decision, and waits for your approval. Verify first. Save only when you are ready.

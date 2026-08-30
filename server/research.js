@@ -1,4 +1,5 @@
 import { resolveMetadata } from '../src/lib/dateMetadata.js';
+import { isDeepStrictEqual } from 'node:util';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_POLL_INTERVAL_MS = 500;
@@ -37,6 +38,7 @@ export function createFixtureResearchAdapter() {
 export function createResearchAdapterFromEnvironment(environment = process.env, options = {}) {
   const baseUrl = environment.TRUEFORGE_BASE_URL;
   const agentName = environment.TRUEFORGE_AGENT_NAME ?? environment.TRUEFORGE_AGENT_ID;
+  const resolverAgentName = environment.TRUEFORGE_RESOLVER_AGENT_NAME ?? agentName;
   const serialResearch = environment.TRUEFORGE_SERIAL_RESEARCH === '1';
   const betweenAnglesMs = readNonNegativeInteger(environment.TRUEFORGE_BETWEEN_ANGLES_MS, 0);
   const timeoutMs = readPositiveInteger(environment.TRUEFORGE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
@@ -46,6 +48,7 @@ export function createResearchAdapterFromEnvironment(environment = process.env, 
     return createTrueForgeResearchAdapter({
       baseUrl,
       agentName,
+      resolverAgentName,
       token: environment.TRUEFORGE_TOKEN,
       serialResearch,
       betweenAnglesMs,
@@ -74,7 +77,10 @@ export function createResearchWorkflow({ adapter = createResearchAdapterFromEnvi
     }
     const findings = [current, contradiction];
     const sources = findings.flatMap((finding) => finding.sources);
-    const resolution = resolver(sources);
+    const resolutionRun = typeof adapter.resolveMetadata === 'function'
+      ? await adapter.resolveMetadata({ sources })
+      : { resolution: resolver(sources) };
+    const resolution = resolutionRun.resolution;
     const hasConflict = current.sources.some((source) => source.stance === 'supports')
       && contradiction.sources.some((source) => source.stance === 'contradicts');
 
@@ -83,6 +89,7 @@ export function createResearchWorkflow({ adapter = createResearchAdapterFromEnvi
       status: resolution.status,
       findings,
       resolution,
+      ...(resolutionRun.sandboxExecution ? { sandboxExecution: resolutionRun.sandboxExecution } : {}),
       summary: hasConflict
         ? `Conflicting public sources were found. ${resolution.message}`
         : 'The research lanes did not return a demonstrable contradiction.',
@@ -93,6 +100,7 @@ export function createResearchWorkflow({ adapter = createResearchAdapterFromEnvi
 export function createTrueForgeResearchAdapter({
   baseUrl,
   agentName,
+  resolverAgentName = agentName,
   agentId,
   token,
   serialResearch = false,
@@ -105,6 +113,14 @@ export function createTrueForgeResearchAdapter({
     baseUrl,
     agentName,
     agentId,
+    token,
+    fetchImpl,
+    pollIntervalMs,
+    timeoutMs,
+  });
+  const resolverRunner = resolverAgentName === agentName ? runner : createTrueForgeTurnRunner({
+    baseUrl,
+    agentName: resolverAgentName,
     token,
     fetchImpl,
     pollIntervalMs,
@@ -125,6 +141,26 @@ export function createTrueForgeResearchAdapter({
       const sources = validateSources(structured.sources, angle);
 
       return { angle, sources, sessionId, turnId };
+    },
+    async resolveMetadata({ sources }) {
+      const resolverSources = validateResolverSources(sources);
+      const expected = resolveMetadata(resolverSources);
+      const job = sandboxResolutionJob(resolverSources);
+      const { content, events, sessionId, turnId } = await resolverRunner.run({
+        prompt: job.prompt,
+        includeEvents: true,
+      });
+      const sandboxExecution = verifySandboxExecution({
+        events,
+        sessionId,
+        turnId,
+        expectedCommand: job.command,
+      });
+      const proof = readSandboxResolutionProof(content);
+      if (!isDeepStrictEqual(proof, job.expectedProof)) {
+        throw new Error('TrueForge sandbox resolution did not match the deterministic server oracle');
+      }
+      return { resolution: expected, sandboxExecution };
     },
   };
 }
@@ -153,7 +189,7 @@ export function createTrueForgeTurnRunner({
   };
 
   return {
-    async run({ prompt }) {
+    async run({ prompt, includeEvents = false }) {
       if (!isNonEmptyString(prompt)) throw new Error('A non-empty prompt is required for a TrueForge turn');
       const session = await requestJson(fetchImpl, `${apiUrl}/sessions`, {
         method: 'POST', headers, body: JSON.stringify({ agent: { name: configuredAgentName } }),
@@ -183,9 +219,35 @@ export function createTrueForgeTurnRunner({
       if (typeof content !== 'string') {
         throw new Error('TrueForge turn completed without string output content');
       }
-      return { content, sessionId, turnId };
+      const events = includeEvents
+        ? await listTurnEvents({ fetchImpl, apiUrl, sessionId, turnId, headers, timeoutMs })
+        : undefined;
+      return { content, sessionId, turnId, ...(events ? { events } : {}) };
     },
   };
+}
+
+const SANDBOX_RESOLVER_PROGRAM = String.raw`
+import json,sys,datetime as d;x=json.loads(sys.argv[1]);n=[d.datetime.fromisoformat(v.replace("Z","+00:00")).astimezone(d.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z") for v in x];m=max(n);r={"status":"unresolved","newestIndex":None,"normalizedDates":n} if n.count(m)>1 else {"status":"resolved","newestIndex":n.index(m),"normalizedDates":n};print(json.dumps(r,separators=(",",":")))
+`.trim();
+
+function sandboxResolutionJob(sources) {
+  const dates = sources.map(({ publishedAt }) => publishedAt);
+  const normalizedDates = dates.map((value) => new Date(value).toISOString());
+  const newest = [...normalizedDates].sort().at(-1);
+  const newestIndex = normalizedDates.filter((value) => value === newest).length === 1
+    ? normalizedDates.indexOf(newest)
+    : null;
+  const expectedProof = {
+    status: newestIndex === null ? 'unresolved' : 'resolved',
+    newestIndex,
+    normalizedDates,
+  };
+  const command = `python -c '${SANDBOX_RESOLVER_PROGRAM}' '${JSON.stringify(dates)}'`;
+  const prompt = 'Deterministic Metadata Resolver. You must call the TrueForge Sandbox MCP tool sandbox/exec exactly once. '
+    + 'Run the exact command below without editing it. Then return only the JSON printed to stdout; do not calculate, repair, summarize, or wrap it in Markdown.\n\n'
+    + command;
+  return { command, expectedProof, prompt };
 }
 
 function researchPrompt({ angle, brief }) {
@@ -216,6 +278,25 @@ async function pollTurn({ fetchImpl, url, headers, timeoutMs, pollIntervalMs }) 
   throw new Error(`TrueForge turn timed out after ${timeoutMs}ms`);
 }
 
+async function listTurnEvents({ fetchImpl, apiUrl, sessionId, turnId, headers, timeoutMs }) {
+  const events = [];
+  let pageToken;
+  do {
+    const query = new URLSearchParams({ limit: '100', order: 'asc' });
+    if (pageToken) query.set('page_token', pageToken);
+    const body = await requestJson(
+      fetchImpl,
+      `${apiUrl}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/events?${query}`,
+      { method: 'GET', headers },
+      timeoutMs,
+    );
+    if (!Array.isArray(body?.data)) throw new Error('TrueForge events response did not contain data');
+    events.push(...body.data);
+    pageToken = body?.pagination?.next_page_token;
+  } while (isNonEmptyString(pageToken));
+  return events;
+}
+
 async function requestJson(fetchImpl, url, options, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -244,6 +325,84 @@ function readStructuredContent(content) {
   const parsed = parsePossibleJson(content);
   if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sources)) return parsed;
   throw new Error('TrueForge turn completed without a structured JSON source result');
+}
+
+function readSandboxResolutionProof(content) {
+  const parsed = parsePossibleJson(content);
+  if (!parsed || typeof parsed !== 'object'
+    || !['resolved', 'unresolved'].includes(parsed.status)
+    || !(parsed.newestIndex === null || Number.isInteger(parsed.newestIndex))
+    || !Array.isArray(parsed.normalizedDates)
+    || !parsed.normalizedDates.every(isNonEmptyString)) {
+    throw new Error('TrueForge sandbox turn completed without a structured metadata resolution');
+  }
+  return parsed;
+}
+
+function validateResolverSources(sources) {
+  if (!Array.isArray(sources) || sources.length < 2) {
+    throw new Error('TrueForge sandbox resolver requires two independent sources');
+  }
+  const validated = sources.map((source) => {
+    if (!source || typeof source !== 'object'
+      || !isNonEmptyString(source.title)
+      || !isSafeHttpUrl(source.url)
+      || !isNonEmptyString(source.publishedAt)
+      || Number.isNaN(Date.parse(source.publishedAt))) {
+      throw new Error('TrueForge sandbox resolver requires a valid publishedAt for every source');
+    }
+    return {
+      title: source.title.trim(),
+      url: source.url.trim(),
+      publishedAt: source.publishedAt.trim(),
+    };
+  });
+  if (new Set(validated.map((source) => source.url)).size < 2) {
+    throw new Error('TrueForge sandbox resolver requires two independent sources');
+  }
+  return validated;
+}
+
+function verifySandboxExecution({ events, sessionId, turnId, expectedCommand }) {
+  if (!Array.isArray(events)) throw new Error('TrueForge did not return persisted events for sandbox verification');
+  const created = events.find((event) => event?.type === 'sandbox.created' && isNonEmptyString(event.sandbox_id));
+  let call;
+  let callEvent;
+  for (const event of events) {
+    if (event?.type !== 'model.message' || !Array.isArray(event.tool_calls)) continue;
+    const candidate = event.tool_calls.find((toolCall) => toolCall?.tool_info?.name === 'exec'
+      && (toolCall.tool_info.type === 'truefoundry-system'
+        || (toolCall.tool_info.type === 'mcp'
+          && (toolCall.tool_info.server_id === 'sandbox'
+            || String(toolCall.tool_info.server_name ?? '').toLowerCase() === 'sandbox'))));
+    if (candidate) {
+      call = candidate;
+      callEvent = event;
+      break;
+    }
+  }
+  const response = call && events.find((event) => event?.type === 'tool.response'
+    && event.tool_call_id === call.id
+    && isNonEmptyString(event.content));
+  if (!created || !call || !callEvent || !response) {
+    throw new Error('TrueForge turn completed without verified sandbox execution evidence');
+  }
+  const callArguments = parsePossibleJson(call.function?.arguments ?? '');
+  if (!callArguments || callArguments.command !== expectedCommand) {
+    throw new Error('TrueForge sandbox exec command did not match the deterministic resolver command');
+  }
+  const responseBody = parsePossibleJson(response.content);
+  if (!responseBody?.success || responseBody.response?.exitCode !== 0) {
+    throw new Error('TrueForge sandbox exec did not complete successfully');
+  }
+  return {
+    verified: true,
+    sessionId,
+    turnId,
+    sandboxId: created.sandbox_id,
+    toolCallId: call.id,
+    eventIds: [created.id, callEvent.id, response.id],
+  };
 }
 
 function parsePossibleJson(value) {
